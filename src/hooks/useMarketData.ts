@@ -22,34 +22,42 @@ export const useMarketData = (refreshInterval: RefreshInterval, currency: string
   const refresh = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    try {
-      const cur = currency?.toLowerCase() ?? 'usd';
-      const results = await Promise.allSettled([
-        fetchPriceData(),
-        fetchOHLCV('1D', cur),
-        fetchBTCDominance(),
-        fetchFearGreed(),
-        fetchOnChainData(),
-      ]);
-      if (!mountedRef.current) return;
-      if (results[0].status === 'fulfilled') setPrice(results[0].value);
-      if (results[1].status === 'fulfilled') setOhlcv(prev => ({ ...prev, '1D': results[1].status === 'fulfilled' ? results[1].value : prev['1D'] }));
-      if (results[2].status === 'fulfilled') setBtcDominance(results[2].value);
-      if (results[3].status === 'fulfilled') setFearGreed(results[3].value);
-      if (results[4].status === 'fulfilled') setOnChain(results[4].value);
+    const cur = currency?.toLowerCase() ?? 'usd';
+    const gap = () => new Promise(r => setTimeout(r, 350));
+    // Fetch sequentially with small gaps so we never burst CoinGecko's free-tier
+    // rate limit (parallel calls trigger 429s). The 1D OHLC fetched here is cached
+    // so the Chart screen's own request reuses it instead of hitting the API again.
+    const settle = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+      try { return await fn(); } catch { return undefined; }
+    };
 
-      const anyFailed = results.some(r => r.status === 'rejected');
-      if (results.every(r => r.status === 'rejected')) {
-        setError('Unable to fetch data. Check your connection.');
-      } else if (anyFailed) {
-        setError('Some data sources unavailable.');
-      }
-      setLastUpdated(new Date());
-    } catch (e: any) {
-      if (mountedRef.current) setError(e?.message ?? 'Unknown error');
-    } finally {
-      if (mountedRef.current) setIsLoading(false);
-    }
+    let failures = 0;
+    const total = 5;
+
+    const priceRes = await settle(fetchPriceData);
+    if (priceRes && mountedRef.current) setPrice(priceRes); else failures++;
+    await gap();
+
+    const ohlcRes = await settle(() => fetchOHLCV('1D', cur));
+    if (ohlcRes && mountedRef.current) setOhlcv(prev => ({ ...prev, '1D': ohlcRes })); else failures++;
+    await gap();
+
+    const domRes = await settle(fetchBTCDominance);
+    if (domRes != null && mountedRef.current) setBtcDominance(domRes); else failures++;
+    await gap();
+
+    const fgRes = await settle(fetchFearGreed);
+    if (fgRes && mountedRef.current) setFearGreed(fgRes); else failures++;
+    await gap();
+
+    const ocRes = await settle(fetchOnChainData);
+    if (ocRes && mountedRef.current) setOnChain(ocRes); else failures++;
+
+    if (!mountedRef.current) return;
+    if (failures >= total) setError('Unable to fetch data. Check your connection.');
+    else if (failures > 0) setError('Some data sources unavailable.');
+    setLastUpdated(new Date());
+    setIsLoading(false);
   }, [currency]);
 
   // Load specific timeframe OHLCV on demand

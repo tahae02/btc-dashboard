@@ -7,6 +7,7 @@ import { GlassCard } from '../../src/components/GlassCard';
 import { FearGreedGauge } from '../../src/components/FearGreedGauge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
 import { Colors, Typography, Spacing, Fonts } from '../../src/constants/theme';
+import { IS_WEB } from '../../src/services/api';
 
 const formatHashRate = (h: number): string => {
   if (!h) return '--';
@@ -95,6 +96,13 @@ export default function OnChainScreen() {
 
         {/* Network Stats */}
         <Text style={styles.sectionHeader}>Network Stats</Text>
+        {IS_WEB && (
+          <GlassCard style={styles.webNotice}>
+            <Text style={styles.webNoticeText}>
+              Live on-chain network metrics (hash rate, mempool, fees) load in the installed mobile app. They are unavailable in the web preview due to browser restrictions.
+            </Text>
+          </GlassCard>
+        )}
         <GlassCard>
           <View style={styles.statRow}>
             <Text style={styles.statLabel}>Hash Rate</Text>
@@ -188,6 +196,8 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: Spacing.lg, gap: Spacing.md },
   sectionHeader: { ...Typography.heading, marginTop: Spacing.sm },
+  webNotice: { borderColor: Colors.accent + '55', borderWidth: 1 },
+  webNoticeText: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18 },
   gaugeCard: { alignItems: 'center' },
   fgHistoryRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: Spacing.lg },
   fgHistoryCol: { alignItems: 'center' },
