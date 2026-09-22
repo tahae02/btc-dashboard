@@ -75,6 +75,7 @@ export interface MarketData {
   lastUpdated: Date | null;
   error: string | null;
   refresh: () => Promise<void>;
+  loadTimeframe: (tf: Timeframe) => Promise<void>;
 }
 
 // ===== Technical Indicators =====
@@ -131,37 +132,80 @@ export interface Indicators {
   supportResistance: SupportResistance;
   goldenCross: boolean;
   deathCross: boolean;
+  /** % change of the 200 SMA over the last 20 bars. Primary trend read. */
+  sma200Slope: number | null;
+  /** Current price as a % above/below the 200 SMA. */
+  priceVsSma200Pct: number | null;
+  /** ATR as a % of price, so it is comparable across price levels. */
+  atrPct: number | null;
 }
 
 // ===== Signal Engine =====
-export type SignalStrength = 'STRONG BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG SELL';
 export type SignalDirection = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 
-export interface IndicatorSignal {
+/** Slow-moving cycle read that dominates the allocation. */
+export type Regime = 'BULL' | 'NEUTRAL' | 'BEAR';
+
+/** What the engine advises doing with the Bitcoin sleeve right now. */
+export type Action = 'ACCUMULATE_STRONG' | 'ACCUMULATE' | 'HOLD' | 'REDUCE' | 'EXIT';
+
+/** Which layer of the hierarchy a reading belongs to. */
+export type IndicatorFamily = 'REGIME' | 'STRETCH' | 'MOMENTUM' | 'SENTIMENT' | 'CONTEXT';
+
+export interface IndicatorReading {
   name: string;
+  family: IndicatorFamily;
   value: string;
   signal: SignalDirection;
+  /** Honest statement of how much this reading can move the allocation. */
+  weight: string;
   explanation: string;
-  thresholds?: string;
-}
-
-export interface SignalResult {
-  overall: SignalStrength;
-  confidence: number;
-  bullishCount: number;
-  bearishCount: number;
-  neutralCount: number;
-  indicators: IndicatorSignal[];
-  entryPrice: number | null;
-  exitPrice: number | null;
-  projections: PriceProjections | null;
 }
 
 export interface PriceProjections {
-  range24h: { low: number; high: number };
-  scenario7d: { bull: number; base: number; bear: number };
-  nextResistance: number | null;
+  range1d: { low: number; high: number };
+  range7d: { low: number; high: number };
   nextSupport: number | null;
+  nextResistance: number | null;
+  note: string;
+}
+
+export interface SignalResult {
+  regime: Regime;
+  regimeScore: number;
+  regimeComponents: { label: string; value: number; detail: string }[];
+  action: Action;
+  actionLabel: string;
+  /** 0..1 target share of the intended Bitcoin sleeve. */
+  targetAllocation: number;
+  /** Multiplier on a regular periodic contribution. 1.0 = unchanged. */
+  dcaMultiplier: number;
+  /** 0..100 agreement between independent families. Not a restatement of action. */
+  conviction: number;
+  stretchScore: number;
+  momentumScore: number;
+  readings: IndicatorReading[];
+  projections: PriceProjections | null;
+}
+
+/** Every tunable number, in one place, so the backtester can sweep them. */
+export interface SignalConfig {
+  sma200SlopeBullPct: number;
+  sma200SlopeBearPct: number;
+  regimeDeadbandPct: number;
+  regimeBullScore: number;
+  regimeBearScore: number;
+  baseAllocationBull: number;
+  baseAllocationNeutral: number;
+  baseAllocationBear: number;
+  stretchWeight: number;
+  momentumWeight: number;
+  sentimentExtremeFear: number;
+  sentimentExtremeGreed: number;
+  sentimentWeight: number;
+  rebalanceBand: number;
+  rsiOverbought: number;
+  rsiOversold: number;
 }
 
 // ===== Settings =====
@@ -171,9 +215,12 @@ export type Currency = 'USD' | 'GBP';
 export interface Settings {
   refreshInterval: RefreshInterval;
   currency: Currency;
+  /** Timeframe the signal is computed on (the chart can differ). */
+  signalTimeframe: Timeframe;
   rsiOverbought: number;
   rsiOversold: number;
-  volumeSpikeMultiplier: number;
+  /** How far stretch may move the allocation. 0 disables mean reversion. */
+  stretchWeight: number;
 }
 
 export type Timeframe = '1H' | '4H' | '1D' | '1W';

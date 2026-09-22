@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MarketData, PriceData, OHLCVCandle, FearGreedData, OnChainData, Timeframe, RefreshInterval } from '../types';
+import type { MarketData, PriceData, OHLCVCandle, FearGreedData, OnChainData, Timeframe, RefreshInterval } from '../types';
 import { fetchPriceData, fetchOHLCV, fetchBTCDominance, fetchFearGreed, fetchOnChainData } from '../services/api';
 
 const INTERVAL_MS: Record<RefreshInterval, number | null> = {
@@ -8,9 +8,11 @@ const INTERVAL_MS: Record<RefreshInterval, number | null> = {
   '5min': 300000,
 };
 
-export const useMarketData = (refreshInterval: RefreshInterval, currency: string): MarketData => {
+const EMPTY_OHLCV: Record<Timeframe, OHLCVCandle[]> = { '1H': [], '4H': [], '1D': [], '1W': [] };
+
+export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe: Timeframe = '1D'): MarketData => {
   const [price, setPrice] = useState<PriceData | null>(null);
-  const [ohlcv, setOhlcv] = useState<Record<Timeframe, OHLCVCandle[]>>({ '1H': [], '4H': [], '1D': [], '1W': [] });
+  const [ohlcv, setOhlcv] = useState<Record<Timeframe, OHLCVCandle[]>>(EMPTY_OHLCV);
   const [fearGreed, setFearGreed] = useState<FearGreedData | null>(null);
   const [onChain, setOnChain] = useState<OnChainData>({ hashRate: 0, difficulty: null, mempool: null, fees: null });
   const [btcDominance, setBtcDominance] = useState<number | null>(null);
@@ -22,52 +24,49 @@ export const useMarketData = (refreshInterval: RefreshInterval, currency: string
   const refresh = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    const cur = currency?.toLowerCase() ?? 'usd';
-    const gap = () => new Promise(r => setTimeout(r, 350));
-    // Fetch sequentially with small gaps so we never burst CoinGecko's free-tier
-    // rate limit (parallel calls trigger 429s). The 1D OHLC fetched here is cached
-    // so the Chart screen's own request reuses it instead of hitting the API again.
-    const settle = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
-      try { return await fn(); } catch { return undefined; }
-    };
 
-    let failures = 0;
-    const total = 5;
-
-    const priceRes = await settle(fetchPriceData);
-    if (priceRes && mountedRef.current) setPrice(priceRes); else failures++;
-    await gap();
-
-    const ohlcRes = await settle(() => fetchOHLCV('1D', cur));
-    if (ohlcRes && mountedRef.current) setOhlcv(prev => ({ ...prev, '1D': ohlcRes })); else failures++;
-    await gap();
-
-    const domRes = await settle(fetchBTCDominance);
-    if (domRes != null && mountedRef.current) setBtcDominance(domRes); else failures++;
-    await gap();
-
-    const fgRes = await settle(fetchFearGreed);
-    if (fgRes && mountedRef.current) setFearGreed(fgRes); else failures++;
-    await gap();
-
-    const ocRes = await settle(fetchOnChainData);
-    if (ocRes && mountedRef.current) setOnChain(ocRes); else failures++;
+    // Fetched in parallel. The previous version ran these sequentially with
+    // 350ms gaps to stay under CoinGecko's free-tier rate limit, but CoinGecko
+    // is no longer used: Kraken, CoinPaprika and Alternative.me all tolerate
+    // concurrent requests comfortably. The gaps were costing ~1.4s of startup
+    // latency for a limit that no longer applies.
+    const settled = await Promise.allSettled([
+      fetchPriceData(),
+      fetchOHLCV(signalTimeframe),
+      fetchBTCDominance(),
+      fetchFearGreed(),
+      fetchOnChainData(),
+    ]);
 
     if (!mountedRef.current) return;
-    if (failures >= total) setError('Unable to fetch data. Check your connection.');
-    else if (failures > 0) setError('Some data sources unavailable.');
+
+    const [priceRes, ohlcRes, domRes, fgRes, ocRes] = settled;
+    let failures = 0;
+
+    if (priceRes.status === 'fulfilled') setPrice(priceRes.value); else failures++;
+    if (ohlcRes.status === 'fulfilled') setOhlcv((prev) => ({ ...prev, [signalTimeframe]: ohlcRes.value })); else failures++;
+    if (domRes.status === 'fulfilled') setBtcDominance(domRes.value); else failures++;
+    if (fgRes.status === 'fulfilled') setFearGreed(fgRes.value); else failures++;
+    if (ocRes.status === 'fulfilled') setOnChain(ocRes.value); else failures++;
+
+    // Price and candles are what the app is for. Losing dominance or sentiment
+    // is a degraded view; losing the price is a broken one, so they are
+    // reported differently rather than counted the same.
+    const coreFailed = priceRes.status !== 'fulfilled' && ohlcRes.status !== 'fulfilled';
+    if (coreFailed) setError('Unable to fetch market data. Check your connection.');
+    else if (failures > 0) setError('Some data sources are unavailable. Showing what loaded.');
+
     setLastUpdated(new Date());
     setIsLoading(false);
-  }, [currency]);
+  }, [signalTimeframe]);
 
-  // Load specific timeframe OHLCV on demand
+  // Load a timeframe the chart asks for, on demand.
   const loadTimeframe = useCallback(async (tf: Timeframe) => {
     try {
-      const cur = currency?.toLowerCase() ?? 'usd';
-      const data = await fetchOHLCV(tf, cur);
-      if (mountedRef.current) setOhlcv(prev => ({ ...prev, [tf]: data }));
-    } catch { /* ignore */ }
-  }, [currency]);
+      const data = await fetchOHLCV(tf);
+      if (mountedRef.current) setOhlcv((prev) => ({ ...prev, [tf]: data }));
+    } catch { /* the chart keeps showing whatever it already had */ }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -93,5 +92,5 @@ export const useMarketData = (refreshInterval: RefreshInterval, currency: string
     error,
     refresh: async () => { await refresh(); },
     loadTimeframe,
-  } as MarketData & { loadTimeframe: (tf: Timeframe) => Promise<void> };
+  };
 };

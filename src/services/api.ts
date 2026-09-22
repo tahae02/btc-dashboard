@@ -1,4 +1,5 @@
-import { OHLCVCandle, FearGreedData, OnChainData, PriceData, Timeframe } from '../types';
+import type { OHLCVCandle, FearGreedData, OnChainData, PriceData, Timeframe } from '../types';
+import { estimateCirculatingSupply } from './supply';
 
 import { Platform } from 'react-native';
 
@@ -21,9 +22,8 @@ const firstResult = <T>(result: Record<string, T> | undefined): T | undefined =>
   return keys.length ? result[keys[0]] : undefined;
 };
 
-// Approx BTC circulating supply used to estimate market cap (price * supply).
-// Kraken has no market-cap field; this stays accurate to well within 1%.
-const BTC_CIRCULATING_SUPPLY = 19_930_000;
+// Market cap is derived locally as price * supply; see services/supply.ts
+// for why the supply figure is extrapolated rather than hardcoded.
 
 // Kraken, CoinPaprika, Frankfurter and Alternative.me all send permissive CORS
 // headers, so they are called directly on every platform. mempool.space does NOT
@@ -35,14 +35,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Short-lived cache + in-flight dedup so duplicate requests for the same URL
 // (e.g. the Dashboard refresh and the Chart screen both wanting 1D OHLC) reuse
-// a single network call instead of bursting CoinGecko into a 429.
+// a single network call instead of hitting the API twice.
 const CACHE_TTL = 20000;
 const cache = new Map<string, { ts: number; data: any }>();
 const inflight = new Map<string, Promise<any>>();
 
 const doFetch = async <T>(url: string, timeout: number): Promise<T> => {
   let lastErr: unknown = new Error('request failed');
-  // Up to 3 attempts with backoff to ride out CoinGecko 429 rate-limits.
+  // Up to 3 attempts with backoff, to ride out a transient 429 or blip.
   for (let attempt = 0; attempt < 3; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -107,13 +107,13 @@ export const fetchPriceData = async (): Promise<PriceData> => {
   return {
     price,
     price_gbp: priceGbp,
-    market_cap: price * BTC_CIRCULATING_SUPPLY,
+    market_cap: price * estimateCirculatingSupply(),
     volume_24h: vol24hBtc * vwap24h,
     change_24h: changeAbs,
     change_24h_pct: changePct,
     high_24h: Number(usd?.h?.[1] ?? 0),
     low_24h: Number(usd?.l?.[1] ?? 0),
-    circulating_supply: BTC_CIRCULATING_SUPPLY,
+    circulating_supply: estimateCirculatingSupply(),
     last_updated: Date.now() / 1000,
   };
 };

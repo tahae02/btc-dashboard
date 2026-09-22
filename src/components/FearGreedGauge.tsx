@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
-import { Colors, Typography, Spacing } from '../constants/theme';
+import { Colors, Typography } from '../constants/theme';
 
 interface Props {
   value: number;
