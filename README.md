@@ -106,6 +106,12 @@ yarn install
 
 Node 20+ is needed for the app, Node 22+ for the backtest scripts.
 
+`yarn install` will modify `yarn.lock` the first time you run it. That is
+expected, not a fault: the lockfile still carries the 31 dependencies that
+were removed, and regenerating it is how they get pruned. Commit the result.
+Once it is committed, drop `--no-immutable` from `.github/workflows/ci.yml`
+so CI fails on dependency drift rather than silently absorbing it.
+
 ### Option 1 — Expo Go (fastest, no build)
 
 ```bash
@@ -119,6 +125,12 @@ Good for: checking screens and signals immediately. This is the quickest way to 
 ### Option 2 — Preview APK (a real, installable app)
 
 A standalone `.apk` you can sideload and keep, with no laptop involved.
+
+> **Note on the GitHub Actions route.** There is a `Build Android APK`
+> workflow in `.github/workflows/`, but GitHub only lists `workflow_dispatch`
+> workflows once they are on the repository's **default branch**. While this
+> work sits on a feature branch it will not appear in the Actions tab. Merge
+> first, then it shows up. The same applies to `Sync lockfile`.
 
 ```bash
 npm install -g eas-cli

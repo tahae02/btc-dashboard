@@ -3,6 +3,10 @@ name: Build Android APK
 # Builds an installable APK on Expo's servers and prints a download link.
 # Trigger it from the Actions tab (no terminal needed).
 #
+# NOTE: GitHub only lists workflow_dispatch workflows once they are on the
+# repository's DEFAULT BRANCH. While this sits on a feature branch it will
+# not appear in the Actions tab at all. Merge first, then it shows up.
+#
 # ONE-TIME SETUP, required before this will work:
 #
 #   1. Create a free account at https://expo.dev
