@@ -1,0 +1,46 @@
+name: CI
+
+# Verifies the project actually installs, compiles and passes its tests.
+# This matters because the environment the rewrite was authored in had no
+# access to the npm registry, so `yarn install` never ran there and the React
+# Native screens were never type-checked against real dependencies.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack (this project uses Yarn 4)
+        run: corepack enable
+
+      - name: Install dependencies
+        # --no-immutable because yarn.lock is stale after the dependency prune
+        # and needs regenerating. Once it is committed, drop this flag so CI
+        # fails on an out-of-date lockfile instead of silently rewriting it.
+        run: yarn install --no-immutable
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Tests
+        run: yarn test
+
+      - name: Backtest smoke test
+        # Runs on the bundled synthetic series. Proves the harness executes
+        # end to end; says nothing about strategy performance.
+        run: yarn backtest
+
+      - name: Show lockfile diff if it changed
+        if: always()
+        run: git diff --stat yarn.lock || true

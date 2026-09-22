@@ -1,0 +1,63 @@
+name: Build Android APK
+
+# Builds an installable APK on Expo's servers and prints a download link.
+# Trigger it from the Actions tab (no terminal needed).
+#
+# ONE-TIME SETUP, required before this will work:
+#
+#   1. Create a free account at https://expo.dev
+#   2. Link this repo to an EAS project. The simplest way is one terminal
+#      command from a checkout: `npx eas-cli@latest init`
+#      That writes an `extra.eas.projectId` into app.json. Commit it.
+#   3. At https://expo.dev/settings/access-tokens create a Personal Access
+#      Token, then add it to this repo under
+#      Settings > Secrets and variables > Actions > New repository secret
+#      named EXPO_TOKEN
+#
+# Step 2 currently needs a terminal once. After that, every future build can
+# be started from the GitHub web UI on any device.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the Expo token is configured
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "::error::EXPO_TOKEN secret is not set. See the setup notes at the top of this workflow file."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - run: yarn install --no-immutable
+
+      - name: Build APK
+        # --wait so the job holds until the build finishes and the link is in
+        # the log, rather than ending immediately with a queued build.
+        run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive --wait
+
+      - name: Where to get the APK
+        if: always()
+        run: echo "Download link is in the step above, and at https://expo.dev/accounts/[your-account]/projects/btc-analyst/builds"
