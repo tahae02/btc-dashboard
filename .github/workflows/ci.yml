@@ -44,3 +44,14 @@ jobs:
       - name: Show lockfile diff if it changed
         if: always()
         run: git diff --stat yarn.lock || true
+
+      # The lockfile in the repo is stale after the dependency prune. Upload
+      # the regenerated one so it can be committed; once it is, drop
+      # --no-immutable above so CI fails on drift instead of papering over it.
+      - name: Upload regenerated lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yarn-lock
+          path: yarn.lock
+          retention-days: 7
