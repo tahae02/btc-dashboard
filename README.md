@@ -106,6 +106,23 @@ yarn install
 
 Node 20+ is needed for the app, Node 22+ for the backtest scripts.
 
+> **Windows:** in a normal PowerShell window, `corepack enable` fails with
+> `EPERM: operation not permitted, open 'C:\Program Files\nodejs\pnpm'`.
+> It is trying to write into Node's install folder, which needs administrator
+> rights. The simplest fix is to skip it and put `corepack` in front of every
+> yarn command instead, which needs no admin rights at all:
+>
+> ```powershell
+> corepack yarn install
+> corepack yarn start
+> corepack yarn test
+> ```
+>
+> Or run `corepack enable` once in a PowerShell opened with **Run as
+> administrator**, after which plain `yarn` works. If plain `yarn` then says
+> *running scripts is disabled on this system*, run
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+
 `yarn install` will modify `yarn.lock` the first time you run it. That is
 expected, not a fault: the lockfile still carries the 31 dependencies that
 were removed, and regenerating it is how they get pruned. Commit the result.
