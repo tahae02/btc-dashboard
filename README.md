@@ -137,6 +137,14 @@ yarn start
 
 Install **Expo Go** from the Play Store, then scan the QR code from the terminal. The app loads over your network in a few seconds. Both devices need to be on the same Wi-Fi; if that's awkward, use `yarn start --tunnel`.
 
+> **"Project is incompatible with this version of Expo Go."** The Play Store
+> version of Expo Go only runs the newest Expo SDK, and this project is on
+> SDK 54. Tap *"Learn how to install Expo Go for SDK 54"* on that error screen
+> and install that build instead. Uninstall the Play Store version first:
+> Android refuses to install an older version of an app over a newer one.
+> Then turn off Play Store auto-update for Expo Go, or it will quietly
+> upgrade itself and the error comes back.
+
 Good for: checking screens and signals immediately. This is the quickest way to see whether the changes look right.
 
 ### Option 2 — Preview APK (a real, installable app)
