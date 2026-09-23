@@ -33,6 +33,17 @@ jobs:
       - name: Typecheck
         run: yarn typecheck
 
+      - name: Bundle the app for Android
+        # Typecheck proves the code compiles; it does not prove Metro can
+        # assemble the app. The dependency prune removed expo-linking, a
+        # required peer of expo-router. Typecheck passed, and the app then
+        # failed on a real phone with "Unable to resolve module expo-linking".
+        # This runs the same bundler the phone uses, so that class of failure
+        # breaks CI instead of reaching a device.
+        run: yarn expo export --platform android --output-dir dist
+        env:
+          EXPO_NO_TELEMETRY: '1'
+
       - name: Tests
         run: yarn test
 

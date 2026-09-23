@@ -124,7 +124,7 @@ Node 20+ is needed for the app, Node 22+ for the backtest scripts.
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
 `yarn install` will modify `yarn.lock` the first time you run it. That is
-expected, not a fault: the lockfile still carries the 31 dependencies that
+expected, not a fault: the lockfile still carries the dependencies that
 were removed, and regenerating it is how they get pruned. Commit the result.
 Once it is committed, drop `--no-immutable` from `.github/workflows/ci.yml`
 so CI fails on dependency drift rather than silently absorbing it.
