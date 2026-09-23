@@ -47,6 +47,13 @@ jobs:
       - name: Tests
         run: yarn test
 
+      - name: Probe live data sources (informational)
+        # Never blocks a merge: it depends on third-party uptime, and GitHub's
+        # runners sit in cloud IP ranges some free APIs throttle. It is here so
+        # a report of "X is unavailable" can be checked against a clean network.
+        continue-on-error: true
+        run: yarn probe
+
       - name: Backtest smoke test
         # Runs on the bundled synthetic series. Proves the harness executes
         # end to end; says nothing about strategy performance.

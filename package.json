@@ -10,6 +10,7 @@
     "test": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs --test \"__tests__/*.test.ts\"",
     "test:watch": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs --test --watch \"__tests__/*.test.ts\"",
     "typecheck": "tsc --noEmit",
+    "probe": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/probe-sources.ts",
     "backtest": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs backtest/run.ts",
     "backtest:fetch": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs backtest/fetch.ts",
     "backtest:sweep": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs backtest/run.ts --sweep",

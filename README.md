@@ -190,10 +190,18 @@ mempool.space doesn't send browser CORS headers, so on-chain metrics are skipped
 
 ---
 
+## When the app says a data source is unavailable
+
+```bash
+yarn probe
+```
+
+Checks every external source the app uses, with the same URLs, and says for each one whether it responded and whether the response holds the data the app reads. Run it on the same network as your phone. It tells apart "the provider is down", "it's rate limiting or blocking you" and "it changed its response format", which the app on its own cannot.
+
 ## Testing
 
 ```bash
-yarn test          # 83 tests, no install required
+yarn test          # 102 tests, no install required
 yarn test:watch
 yarn typecheck
 ```

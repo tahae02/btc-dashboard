@@ -19,6 +19,7 @@ export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe:
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failedSources, setFailedSources] = useState<string[]>([]);
   const mountedRef = useRef(true);
 
   const refresh = useCallback(async () => {
@@ -41,20 +42,33 @@ export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe:
     if (!mountedRef.current) return;
 
     const [priceRes, ohlcRes, domRes, fgRes, ocRes] = settled;
-    let failures = 0;
+    const failed: string[] = [];
 
-    if (priceRes.status === 'fulfilled') setPrice(priceRes.value); else failures++;
-    if (ohlcRes.status === 'fulfilled') setOhlcv((prev) => ({ ...prev, [signalTimeframe]: ohlcRes.value })); else failures++;
-    if (domRes.status === 'fulfilled') setBtcDominance(domRes.value); else failures++;
-    if (fgRes.status === 'fulfilled') setFearGreed(fgRes.value); else failures++;
-    if (ocRes.status === 'fulfilled') setOnChain(ocRes.value); else failures++;
+    // Each failure is recorded by name. The previous banner said only "some
+    // data sources are unavailable", which left no way to tell which one, or
+    // whether pressing Retry could possibly help.
+    if (priceRes.status === 'fulfilled') setPrice(priceRes.value); else failed.push('Live price (Kraken)');
+    if (ohlcRes.status === 'fulfilled') setOhlcv((prev) => ({ ...prev, [signalTimeframe]: ohlcRes.value }));
+    else failed.push('Price history (Kraken)');
+    if (domRes.status === 'fulfilled') setBtcDominance(domRes.value); else failed.push('BTC dominance (CoinPaprika)');
+    if (fgRes.status === 'fulfilled') setFearGreed(fgRes.value); else failed.push('Fear & Greed (Alternative.me)');
+    if (ocRes.status === 'fulfilled') setOnChain(ocRes.value); else failed.push('On-chain (mempool.space)');
+
+    setFailedSources(failed);
 
     // Price and candles are what the app is for. Losing dominance or sentiment
     // is a degraded view; losing the price is a broken one, so they are
     // reported differently rather than counted the same.
     const coreFailed = priceRes.status !== 'fulfilled' && ohlcRes.status !== 'fulfilled';
-    if (coreFailed) setError('Unable to fetch market data. Check your connection.');
-    else if (failures > 0) setError('Some data sources are unavailable. Showing what loaded.');
+    if (coreFailed) {
+      setError('Unable to fetch market data. Check your connection.');
+    } else if (failed.length > 0) {
+      const list = failed.length === 1 ? failed[0] : `${failed.slice(0, -1).join(', ')} and ${failed[failed.length - 1]}`;
+      setError(
+        `${list} ${failed.length === 1 ? 'is' : 'are'} unavailable. Everything else is live. ` +
+          'If Retry keeps failing, that provider is down or blocking requests, not your connection.'
+      );
+    }
 
     setLastUpdated(new Date());
     setIsLoading(false);
@@ -90,6 +104,7 @@ export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe:
     isLoading,
     lastUpdated,
     error,
+    failedSources,
     refresh: async () => { await refresh(); },
     loadTimeframe,
   };

@@ -1,19 +1,15 @@
 import type { OHLCVCandle, FearGreedData, OnChainData, PriceData, Timeframe } from '../types';
 import { estimateCirculatingSupply } from './supply';
+import { ENDPOINTS } from './endpoints';
 
 import { Platform } from 'react-native';
 
 // Primary sources chosen for reliable browser CORS + generous free limits:
-//  - Kraken:      live price + OHLC (both CORS-enabled, no key, high limits)
+//  - Kraken:      live price in USD and GBP, plus OHLC (CORS-enabled, no key)
 //  - CoinPaprika: BTC dominance
-//  - Frankfurter: USD->GBP FX rate (for the GBP display toggle)
 //  - Alternative.me: Fear & Greed Index
 //  - mempool.space: on-chain metrics (native only; no browser CORS)
-const KRAKEN_BASE = 'https://api.kraken.com/0/public';
-const PAPRIKA_BASE = 'https://api.coinpaprika.com/v1';
-const FX_BASE = 'https://api.frankfurter.app';
-const ALTERNATIVE_ME_BASE = 'https://api.alternative.me';
-const MEMPOOL_BASE = 'https://mempool.space/api';
+// URLs live in ./endpoints so the probe script and tests use exactly these.
 
 // Kraken nests results under a pair key (e.g. "XXBTZUSD"); grab the first one.
 const firstResult = <T>(result: Record<string, T> | undefined): T | undefined => {
@@ -25,7 +21,7 @@ const firstResult = <T>(result: Record<string, T> | undefined): T | undefined =>
 // Market cap is derived locally as price * supply; see services/supply.ts
 // for why the supply figure is extrapolated rather than hardcoded.
 
-// Kraken, CoinPaprika, Frankfurter and Alternative.me all send permissive CORS
+// Kraken, CoinPaprika and Alternative.me all send permissive CORS
 // headers, so they are called directly on every platform. mempool.space does NOT
 // allow browser CORS, so its calls are skipped on web (see IS_WEB gate in
 // fetchOnChainData) and run only in the native app, where CORS does not apply.
@@ -94,7 +90,7 @@ const resultForQuote = (result: Record<string, any> | undefined, quote: string):
 export const fetchPriceData = async (): Promise<PriceData> => {
   // Single Kraken ticker call for both USD and GBP pairs (no separate FX API).
   // Per pair: c=last, o=open(24h ago), h/l=[today,24h], v=vol(BTC), p=vwap.
-  const data = await fetchJSON<Record<string, any>>(`${KRAKEN_BASE}/Ticker?pair=XBTUSD,XBTGBP`);
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ticker);
   const usd = resultForQuote(data?.result, 'USD') ?? {};
   const gbp = resultForQuote(data?.result, 'GBP') ?? {};
   const price = Number(usd?.c?.[0] ?? 0);
@@ -118,20 +114,11 @@ export const fetchPriceData = async (): Promise<PriceData> => {
   };
 };
 
-// Kraken OHLC interval in MINUTES per timeframe. Kraken returns up to 720 rows.
-const TIMEFRAME_KRAKEN: Record<Timeframe, number> = {
-  '1H': 60,
-  '4H': 240,
-  '1D': 1440,
-  '1W': 10080,
-};
-
 export const fetchOHLCV = async (timeframe: Timeframe, _currency: string = 'usd'): Promise<OHLCVCandle[]> => {
   // Kraken OHLC (XBTUSD). Charts are always denominated in USD; the GBP toggle
   // only affects the headline price display, not the candle series.
   // Row shape: [time(s), open, high, low, close, vwap, volume, count].
-  const interval = TIMEFRAME_KRAKEN[timeframe];
-  const data = await fetchJSON<Record<string, any>>(`${KRAKEN_BASE}/OHLC?pair=XBTUSD&interval=${interval}`);
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ohlc(timeframe));
   const rows = firstResult<any[][]>(data?.result) ?? [];
   return rows.map((c) => ({
     time: Number(c?.[0] ?? 0) * 1000,
@@ -145,12 +132,12 @@ export const fetchOHLCV = async (timeframe: Timeframe, _currency: string = 'usd'
 
 export const fetchBTCDominance = async (): Promise<number> => {
   // CoinPaprika global: BTC dominance %. CORS-enabled with generous free limits.
-  const data = await fetchJSON<Record<string, any>>(`${PAPRIKA_BASE}/global`);
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.dominance);
   return Number(data?.bitcoin_dominance_percentage ?? 0);
 };
 
 export const fetchFearGreed = async (): Promise<FearGreedData> => {
-  const data = await fetchJSON<Record<string, any>>(new URL('/fng/?limit=31&format=json', ALTERNATIVE_ME_BASE).toString());
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.fearGreed);
   const entries = data?.data ?? [];
   const current = entries?.[0] ?? { value: '50', value_classification: 'Neutral', timestamp: '0' };
   return {
@@ -175,11 +162,19 @@ export const fetchOnChainData = async (): Promise<OnChainData> => {
     return { hashRate: 0, difficulty: null as any, mempool: null as any, fees: null as any };
   }
   const results = await Promise.allSettled([
-    fetchJSON<Record<string, any>>(new URL('/v1/mining/hashrate/1m', MEMPOOL_BASE).toString()),
-    fetchJSON<Record<string, any>>(new URL('/v1/difficulty-adjustment', MEMPOOL_BASE).toString()),
-    fetchJSON<Record<string, any>>(new URL('/mempool', MEMPOOL_BASE).toString()),
-    fetchJSON<Record<string, any>>(new URL('/v1/fees/recommended', MEMPOOL_BASE).toString()),
+    fetchJSON<Record<string, any>>(ENDPOINTS.hashrate),
+    fetchJSON<Record<string, any>>(ENDPOINTS.difficulty),
+    fetchJSON<Record<string, any>>(ENDPOINTS.mempool),
+    fetchJSON<Record<string, any>>(ENDPOINTS.fees),
   ]);
+
+  // Partial failure is fine (the screen shows what it has), but if every
+  // request failed, throw so the app reports on-chain as unavailable instead
+  // of quietly rendering a screen of blanks.
+  if (results.every((r) => r.status === 'rejected')) {
+    const first = results[0] as PromiseRejectedResult;
+    throw new Error(`mempool.space unreachable: ${String(first.reason?.message ?? first.reason)}`);
+  }
 
   const hashData = results[0].status === 'fulfilled' ? results[0].value : null;
   const diffData = results[1].status === 'fulfilled' ? results[1].value : null;

@@ -74,6 +74,8 @@ export interface MarketData {
   isLoading: boolean;
   lastUpdated: Date | null;
   error: string | null;
+  /** Human-readable names of the sources that failed on the last refresh. */
+  failedSources: string[];
   refresh: () => Promise<void>;
   loadTimeframe: (tf: Timeframe) => Promise<void>;
 }

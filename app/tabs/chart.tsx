@@ -6,11 +6,22 @@ import { useData } from '../../src/context/DataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 import { useIndicators } from '../../src/hooks/useIndicators';
 import { GlassCard } from '../../src/components/GlassCard';
+import { ErrorBoundary } from '../../src/components/ErrorBoundary';
+import { buildChartWindow, visibleCandleCount, formatPriceShort } from '../../src/services/chartWindow';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/constants/theme';
 import type { Timeframe } from '../../src/types';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '4H', '1D', '1W'];
 const screenWidth = Dimensions.get('window').width;
+
+// Screen side padding (2 x 16), card padding (2 x 8) and the y-axis labels
+// (~40). What remains is the plot area the candles have to fit into.
+const RESERVED_WIDTH = 32 + 16 + 40;
+const CANDLE_SPACING = 8;
+const PLOT_WIDTH = screenWidth - RESERVED_WIDTH;
+// Bounded on purpose: drawing all ~720 candles made one enormous SVG that
+// Android kills the app over. See src/services/chartWindow.ts.
+const VISIBLE_CANDLES = visibleCandleCount(screenWidth, CANDLE_SPACING, RESERVED_WIDTH);
 
 /**
  * Overlays are single-select.
@@ -52,47 +63,26 @@ export default function ChartScreen() {
     }
   }, [data]);
 
-  const chartData = useMemo(
-    () => candles.map((c) => ({ open: c?.open ?? 0, high: c?.high ?? 0, low: c?.low ?? 0, close: c?.close ?? 0 })),
-    [candles]
+  // Indicator series are index-aligned to the FULL candle history; the window
+  // slices both together so the overlay lines up with the candles drawn.
+  const overlayRaw = useMemo((): number[] | null => {
+    switch (overlay) {
+      case 'ema9': return indicators?.ema9Values ?? null;
+      case 'ema21': return indicators?.ema21Values ?? null;
+      case 'sma50': return indicators?.sma50Values ?? null;
+      case 'sma200': return indicators?.sma200Values ?? null;
+      case 'bbUpper': return indicators?.bollingerBands?.upperValues ?? null;
+      case 'bbLower': return indicators?.bollingerBands?.lowerValues ?? null;
+      default: return null;
+    }
+  }, [overlay, indicators]);
+
+  const chartWindow = useMemo(
+    () => buildChartWindow(candles, VISIBLE_CANDLES, overlayRaw),
+    [candles, overlayRaw]
   );
 
-  // The overlay series must be index-aligned with the candles, so it is taken
-  // from the full indicator series rather than the single latest value. Warmup
-  // NaNs are carried through as the first valid value so the line starts flat
-  // instead of collapsing to zero and dragging the y-axis down.
-  const overlaySeries = useMemo(() => {
-    const pick = (): number[] | null => {
-      switch (overlay) {
-        case 'ema9': return indicators?.ema9Values ?? null;
-        case 'ema21': return indicators?.ema21Values ?? null;
-        case 'sma50': return indicators?.sma50Values ?? null;
-        case 'sma200': return indicators?.sma200Values ?? null;
-        case 'bbUpper': return indicators?.bollingerBands?.upperValues ?? null;
-        case 'bbLower': return indicators?.bollingerBands?.lowerValues ?? null;
-        default: return null;
-      }
-    };
-    const raw = pick();
-    if (!raw || raw.length === 0) return null;
-
-    const firstValid = raw.find((v) => !isNaN(v));
-    if (firstValid == null) return null;
-
-    let last = firstValid;
-    // The chart draws the still-forming bar (that is what you want on a
-    // chart) but the indicators exclude it, so the overlay series is one
-    // shorter. The final point carries the last closed value forward rather
-    // than dropping to zero and wrecking the y-axis.
-    return chartData.map((_, i) => {
-      const v = raw[i];
-      if (v != null && !isNaN(v)) last = v;
-      return { value: last };
-    });
-  }, [overlay, indicators, chartData]);
-
   const overlayColor = OVERLAYS.find((o) => o.key === overlay)?.color ?? Colors.accent;
-  const chartWidth = Math.max(screenWidth - 32, chartData.length * 8);
 
   const rsiValues = (indicators?.rsi?.values ?? []).filter((v) => !isNaN(v));
   const macdHist = (indicators?.macd?.histogramValues ?? []).filter((v) => !isNaN(v));
@@ -124,27 +114,37 @@ export default function ChartScreen() {
         <GlassCard style={styles.chartCard}>
           {loading ? (
             <View style={styles.loadingBox}><ActivityIndicator color={Colors.accent} size="large" /></View>
-          ) : chartData.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          ) : chartWindow.candles.length > 0 ? (
+            // No outer horizontal ScrollView: the window already fits the
+            // screen, and nesting one inside the chart's own scroller made two
+            // same-direction scroll views fight over the gesture.
+            <ErrorBoundary fallbackTitle="The chart could not be drawn" resetKey={`${activeTimeframe}:${overlay}`}>
               <CandleStickChart
-                data={chartData}
-                width={chartWidth}
+                data={chartWindow.candles}
+                width={PLOT_WIDTH}
                 height={280}
                 yAxisColor={Colors.cardBorder}
                 xAxisColor={Colors.cardBorder}
                 yAxisTextStyle={{ color: Colors.textTertiary, fontSize: 10 }}
+                formatYLabel={(label: string) => formatPriceShort(Number(label) + chartWindow.base)}
                 bullishColor={Colors.bullish}
                 bearishColor={Colors.bearish}
-                spacing={8}
-                showLine={overlaySeries != null}
-                lineData={overlaySeries ?? undefined}
+                spacing={CANDLE_SPACING}
+                showLine={chartWindow.overlay != null}
+                lineData={chartWindow.overlay ?? undefined}
                 lineConfig={{ color: overlayColor, thickness: 1.5, hideDataPoints: true, curved: false }}
               />
-            </ScrollView>
+            </ErrorBoundary>
           ) : (
             <View style={styles.loadingBox}><Text style={styles.noData}>No chart data available</Text></View>
           )}
         </GlassCard>
+
+        {chartWindow.candles.length > 0 && !loading && (
+          <Text style={styles.windowNote}>
+            Showing the latest {chartWindow.candles.length} {activeTimeframe} candles. Indicators are calculated on the full history.
+          </Text>
+        )}
 
         <Text style={styles.sectionLabel}>Overlay</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.overlayRow}>
@@ -259,6 +259,7 @@ const styles = StyleSheet.create({
   tfText: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '600' },
   tfTextActive: { color: Colors.accent },
   tfNotice: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17 },
+  windowNote: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: -Spacing.xs },
   chartCard: { padding: Spacing.sm },
   loadingBox: { height: 280, alignItems: 'center', justifyContent: 'center' },
   noData: { ...Typography.body, color: Colors.textTertiary },
