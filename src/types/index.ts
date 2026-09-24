@@ -74,6 +74,11 @@ export interface MarketData {
   isLoading: boolean;
   lastUpdated: Date | null;
   error: string | null;
+  /**
+   * 'offline' when there is no live price or history at all; 'partial' when
+   * only extras (dominance, sentiment, on-chain) failed and the core is live.
+   */
+  errorKind: 'offline' | 'partial' | null;
   /** Human-readable names of the sources that failed on the last refresh. */
   failedSources: string[];
   refresh: () => Promise<void>;

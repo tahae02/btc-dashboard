@@ -191,10 +191,12 @@ yarn probe
 
 Checks every external source the app uses, with the same URLs, and says for each one whether it responded and whether the response holds the data the app reads. Run it on the same network as your phone. It tells apart "the provider is down", "it's rate limiting or blocking you" and "it changed its response format", which the app on its own cannot.
 
+The app's banner now gives the reason too, e.g. `(HTTP 403)`, `(timed out after 8s)` or `(could not connect)`. The probe also runs a second pass sending the same User-Agent as the Android app (`okhttp`), because some Cloudflare-fronted APIs let Node through but block that, so a source can pass the first pass and still fail on a phone.
+
 ## Testing
 
 ```bash
-yarn test          # 102 tests, no install required
+yarn test          # 123 tests, no install required
 yarn test:watch
 yarn typecheck
 ```

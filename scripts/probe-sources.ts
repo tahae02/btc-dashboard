@@ -20,6 +20,15 @@ import { SOURCE_CHECKS } from '../src/services/endpoints';
 
 const TIMEOUT_MS = 15000;
 
+/**
+ * The User-Agent React Native's Android networking (OkHttp) sends when the
+ * app does not set one. Some Cloudflare-fronted APIs challenge or block
+ * clients that identify as OkHttp while letting Node's fetch through, so a
+ * source can pass the first pass here and still fail on a phone. The second
+ * pass sends this header to catch exactly that.
+ */
+const ANDROID_UA = 'okhttp/4.9.2';
+
 interface Result {
   label: string;
   essential: boolean;
@@ -29,11 +38,17 @@ interface Result {
   detail: string;
 }
 
-const probe = async (label: string, url: string, essential: boolean, validate: (b: any) => string | null): Promise<Result> => {
+const probe = async (
+  label: string,
+  url: string,
+  essential: boolean,
+  validate: (b: any) => string | null,
+  extraHeaders: Record<string, string> = {}
+): Promise<Result> => {
   const started = Date.now();
   try {
     const res = await fetch(url, {
-      headers: { accept: 'application/json' },
+      headers: { accept: 'application/json', ...extraHeaders },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const ms = Date.now() - started;
@@ -63,9 +78,24 @@ const main = async (): Promise<void> => {
   const results = await Promise.all(SOURCE_CHECKS.map((s) => probe(s.label, s.url, s.essential, s.validate)));
 
   const w = Math.max(...results.map((r) => r.label.length));
-  for (const r of results) {
-    const mark = r.ok ? 'OK  ' : 'FAIL';
-    console.log(`${mark}  ${r.label.padEnd(w)}  ${r.status.padEnd(12)} ${String(r.ms).padStart(5)}ms${r.detail ? `  ${r.detail}` : ''}`);
+  const print = (rs: Result[]) => {
+    for (const r of rs) {
+      const mark = r.ok ? 'OK  ' : 'FAIL';
+      console.log(`${mark}  ${r.label.padEnd(w)}  ${r.status.padEnd(12)} ${String(r.ms).padStart(5)}ms${r.detail ? `  ${r.detail}` : ''}`);
+    }
+  };
+  print(results);
+
+  // Same again, identifying as the Android app does. Informational only: it
+  // does not change the exit code, it explains a phone-only failure.
+  console.log(`\nAs the Android app sends it (User-Agent: ${ANDROID_UA}):\n`);
+  const android = await Promise.all(
+    SOURCE_CHECKS.map((s) => probe(s.label, s.url, s.essential, s.validate, { 'user-agent': ANDROID_UA }))
+  );
+  print(android);
+  const phoneOnly = android.filter((r, i) => !r.ok && results[i].ok);
+  if (phoneOnly.length) {
+    console.log(`\n${phoneOnly.map((r) => r.label).join(', ')} rejected the Android User-Agent but not Node's.`);
   }
 
   const failed = results.filter((r) => !r.ok);

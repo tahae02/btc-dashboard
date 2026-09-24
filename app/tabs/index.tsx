@@ -88,7 +88,9 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={data?.isLoading ?? false} onRefresh={() => data?.refresh?.()} tintColor={Colors.accent} />}
       >
-        {data?.error && <ErrorRetry message={data.error} onRetry={() => data?.refresh?.()} />}
+        {data?.error && (
+          <ErrorRetry message={data.error} compact={data.errorKind === 'partial'} onRetry={() => data?.refresh?.()} />
+        )}
 
         {/* Price */}
         <GlassCard style={styles.heroCard}>
