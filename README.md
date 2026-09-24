@@ -97,7 +97,25 @@ One default was changed based on that synthetic run: `stretchWeight` went from 0
 
 ## Running the app
 
-### Prerequisites
+### Install it on your phone
+
+**Download:** <https://github.com/tahae02/btc-dashboard/releases/download/apk-latest/btc-analyst.apk>
+
+Open that link on your Android phone, open the downloaded file, and install. Android will ask you to allow installing apps from your browser; allow it once. No computer, account or cable needed.
+
+This is a normal, standalone app. It carries its own code, so it works whenever you open it, starts in a second or two, and keeps working when the phone sleeps.
+
+**To update**, open the same link again and install over the top. Your settings are kept.
+
+The link always points at the newest build. Every push that changes the app triggers the `Build Android APK` workflow, which compiles a fresh APK on GitHub's servers (about 15 to 25 minutes) and replaces the file. See the [release page](https://github.com/tahae02/btc-dashboard/releases/tag/apk-latest) for which commit it was built from.
+
+The APK is built for 64-bit ARM, which covers every Android phone sold in recent years. It is signed with the Expo template's shared development key: fine for installing on your own phone, not suitable for publishing to the Play Store.
+
+### For development: Expo Go
+
+Expo Go streams the app from your computer over Wi-Fi, so edits show up on the phone within seconds. The catch is that it only works while your computer is running the development server: when the phone sleeps or loses the connection, the app stops until you scan the QR code again. Use it for changing the app, and the APK above for using it.
+
+**Prerequisites**
 
 ```bash
 corepack enable          # this project uses Yarn 4; corepack ships with Node
@@ -129,13 +147,13 @@ were removed, and regenerating it is how they get pruned. Commit the result.
 Once it is committed, drop `--no-immutable` from `.github/workflows/ci.yml`
 so CI fails on dependency drift rather than silently absorbing it.
 
-### Option 1 — Expo Go (fastest, no build)
+**Start it**
 
 ```bash
 yarn start
 ```
 
-Install **Expo Go** from the Play Store, then scan the QR code from the terminal. The app loads over your network in a few seconds. Both devices need to be on the same Wi-Fi; if that's awkward, use `yarn start --tunnel`.
+Install **Expo Go** from the Play Store, then scan the QR code from the terminal. Both devices need to be on the same Wi-Fi; if that's awkward, use `yarn start --tunnel`.
 
 > **"Project is incompatible with this version of Expo Go."** The Play Store
 > version of Expo Go only runs the newest Expo SDK, and this project is on
@@ -143,46 +161,21 @@ Install **Expo Go** from the Play Store, then scan the QR code from the terminal
 > and install that build instead. Uninstall the Play Store version first:
 > Android refuses to install an older version of an app over a newer one.
 > Then turn off Play Store auto-update for Expo Go, or it will quietly
-> upgrade itself and the error comes back.
+> upgrade itself and the error comes back. The standalone APK above has no
+> such problem, because it does not depend on Expo Go at all.
 
-Good for: checking screens and signals immediately. This is the quickest way to see whether the changes look right.
+### Building the APK yourself
 
-### Option 2 — Preview APK (a real, installable app)
+You shouldn't need to, since the workflow does it on every push. But if you want to:
 
-A standalone `.apk` you can sideload and keep, with no laptop involved.
-
-> **Note on the GitHub Actions route.** There is a `Build Android APK`
-> workflow in `.github/workflows/`, but GitHub only lists `workflow_dispatch`
-> workflows once they are on the repository's **default branch**. While this
-> work sits on a feature branch it will not appear in the Actions tab. Merge
-> first, then it shows up. The same applies to `Sync lockfile`.
-
-```bash
-npm install -g eas-cli
-eas login                                        # free Expo account
-eas build:configure                              # once per project
-eas build --profile preview --platform android
-```
-
-The build runs on Expo's servers (the free tier queues but works). When it finishes you get a download link and a QR code. Open it on the phone, download the APK, and allow "install from unknown sources" when prompted.
-
-The `preview` profile in `eas.json` is already set to `buildType: apk` for exactly this — the `production` profile builds an `.aab`, which is for Play Store upload and cannot be sideloaded.
-
-### Option 3 — Build locally
-
-Needs Android Studio, the Android SDK and a JDK.
-
-```bash
-npx expo prebuild --platform android    # generates the native android/ project
-cd android && ./gradlew assembleRelease
-# output: android/app/build/outputs/apk/release/app-release.apk
-```
-
-`android/` and `ios/` are gitignored, so `prebuild` regenerates them. Don't hand-edit anything inside them.
-
-### Which should you use?
-
-Start with **Expo Go** to check it works. Move to the **preview APK** once you want it on your phone properly — Expo Go can't do the on-chain screen's background behaviour and won't survive a phone restart as a standalone app.
+- **On your own machine**, with Android Studio, the Android SDK and JDK 17 installed:
+  ```bash
+  npx expo prebuild --platform android    # generates the native android/ project
+  cd android && ./gradlew assembleRelease
+  # output: android/app/build/outputs/apk/release/app-release.apk
+  ```
+  `android/` and `ios/` are gitignored, so `prebuild` regenerates them. Don't hand-edit anything inside them.
+- **With Expo's build service (EAS)**, which needs a free Expo account: `npx eas-cli build --profile preview --platform android`. The `preview` profile in `eas.json` produces an installable `.apk`; `production` produces an `.aab`, which is for Play Store upload only.
 
 ### Note on the On-Chain screen
 

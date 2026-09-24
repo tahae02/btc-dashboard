@@ -1,67 +1,132 @@
 name: Build Android APK
 
-# Builds an installable APK on Expo's servers and prints a download link.
-# Trigger it from the Actions tab (no terminal needed).
+# Builds a standalone, installable Android app on GitHub's servers and
+# publishes it at a fixed link that never changes:
 #
-# NOTE: GitHub only lists workflow_dispatch workflows once they are on the
-# repository's DEFAULT BRANCH. While this sits on a feature branch it will
-# not appear in the Actions tab at all. Merge first, then it shows up.
+#   https://github.com/tahae02/btc-dashboard/releases/download/apk-latest/btc-analyst.apk
 #
-# ONE-TIME SETUP, required before this will work:
+# Unlike Expo Go, the result carries its own code. It opens without a PC
+# running, keeps working when the phone sleeps, and starts in a second or two
+# rather than waiting for a development server to stream it over Wi-Fi.
 #
-#   1. Create a free account at https://expo.dev
-#   2. Link this repo to an EAS project. The simplest way is one terminal
-#      command from a checkout: `npx eas-cli@latest init`
-#      That writes an `extra.eas.projectId` into app.json. Commit it.
-#   3. At https://expo.dev/settings/access-tokens create a Personal Access
-#      Token, then add it to this repo under
-#      Settings > Secrets and variables > Actions > New repository secret
-#      named EXPO_TOKEN
-#
-# Step 2 currently needs a terminal once. After that, every future build can
-# be started from the GitHub web UI on any device.
+# No Expo account or token is involved. The native project is generated with
+# `expo prebuild` and compiled with Gradle, both here on the runner. (An
+# earlier version of this workflow used Expo's cloud service, which needed an
+# account, a token secret and a one-off terminal step before it could run.)
 
 on:
+  push:
+    branches: [main, 'claude/**']
+    # Documentation, tests and the backtester do not change the app.
+    paths-ignore:
+      - '**.md'
+      - 'backtest/**'
+      - '__tests__/**'
+      - 'scripts/**'
   workflow_dispatch:
-    inputs:
-      profile:
-        description: 'EAS build profile'
-        required: true
-        default: preview
-        type: choice
-        options: [preview, production]
+
+# A newer push supersedes an in-flight build of the same branch.
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # to publish the release that hosts the download link
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - name: Check the Expo token is configured
-        run: |
-          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
-            echo "::error::EXPO_TOKEN secret is not set. See the setup notes at the top of this workflow file."
-            exit 1
-          fi
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - run: corepack enable
+      - name: Enable Corepack (this project uses Yarn 4)
+        run: corepack enable
 
-      - uses: expo/expo-github-action@v8
+      - uses: actions/setup-java@v4
         with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+          distribution: temurin
+          java-version: '17'
 
-      - run: yarn install --no-immutable
+      - name: Install dependencies
+        run: yarn install --no-immutable
 
-      - name: Build APK
-        # --wait so the job holds until the build finishes and the link is in
-        # the log, rather than ending immediately with a queued build.
-        run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive --wait
+      - name: Stamp a unique version code
+        # Android only installs an update over an existing copy when the new
+        # versionCode is higher. Tie it to the run number so every build is a
+        # valid upgrade of the previous one, with no manual bumping.
+        run: |
+          node -e '
+            const fs = require("fs");
+            const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            app.expo.android.versionCode = 1000 + Number(process.env.GITHUB_RUN_NUMBER);
+            fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
+            console.log("versionCode", app.expo.android.versionCode);
+          '
 
-      - name: Where to get the APK
-        if: always()
-        run: echo "Download link is in the step above, and at https://expo.dev/accounts/[your-account]/projects/btc-analyst/builds"
+      - name: Generate the native Android project
+        run: yarn expo prebuild --platform android --no-install
+        env:
+          EXPO_NO_TELEMETRY: '1'
+
+      - name: Confirm the signing key is the stable one
+        # An update only installs over an existing copy if both are signed
+        # with the same key. The Expo template ships a fixed keystore and the
+        # release build is signed with it. Print its fingerprint so any change
+        # between builds is visible in the log, and fail loudly if it is
+        # missing rather than silently signing with a random key.
+        run: |
+          if [ ! -f android/app/debug.keystore ]; then
+            echo "::error::android/app/debug.keystore is missing, so each build would be signed with a different key and updates would not install over each other."
+            exit 1
+          fi
+          keytool -list -v -keystore android/app/debug.keystore -storepass android | grep 'SHA256:'
+
+      - name: Compile the release APK
+        working-directory: android
+        # arm64-v8a only: every Android phone sold in recent years is 64-bit
+        # ARM, and building one architecture instead of four cuts the native
+        # compile time roughly fourfold.
+        run: |
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> gradle.properties
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+        env:
+          EXPO_NO_TELEMETRY: '1'
+
+      - name: Collect the APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/btc-analyst.apk
+          ls -la out
+          sha256sum out/btc-analyst.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: btc-analyst-apk
+          path: out/btc-analyst.apk
+          retention-days: 30
+
+      - name: Publish at the fixed download link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          Latest standalone build of BTC Analyst, from \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA::7}.
+
+          **To install:** open this page on your Android phone, tap \`btc-analyst.apk\` below, then open the download. Android will ask you to allow installing apps from your browser; allow it once.
+
+          **To update:** download it again and install over the top. Your settings are kept.
+
+          Signed with the Expo template's shared development key. That is fine for installing on your own phone, but not suitable for publishing to the Play Store.
+          EOF
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest out/btc-analyst.apk \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "BTC Analyst: latest build" \
+            --notes-file notes.md
+          echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/apk-latest/btc-analyst.apk"
