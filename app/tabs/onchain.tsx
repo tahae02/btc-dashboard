@@ -2,7 +2,6 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useData } from '../../src/context/DataContext';
-import { useSettings } from '../../src/context/SettingsContext';
 import { GlassCard } from '../../src/components/GlassCard';
 import { FearGreedGauge } from '../../src/components/FearGreedGauge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
@@ -25,7 +24,6 @@ const getCongestion = (count: number): { label: string; color: string } => {
 
 export default function OnChainScreen() {
   const data = useData();
-  const settings = useSettings();
   const fg = data?.fearGreed;
   const oc = data?.onChain;
   const price = data?.price;

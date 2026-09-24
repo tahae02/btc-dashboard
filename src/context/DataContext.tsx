@@ -1,11 +1,9 @@
 import React, { createContext, useContext, type ReactNode } from 'react';
-import { MarketData, Timeframe } from '../types';
+import type { MarketData } from '../types';
 import { useMarketData } from '../hooks/useMarketData';
 import { useSettings } from './SettingsContext';
 
-interface DataContextValue extends MarketData {
-  loadTimeframe: (tf: Timeframe) => Promise<void>;
-}
+type DataContextValue = MarketData;
 
 const DataContext = createContext<DataContextValue | null>(null);
 
@@ -16,7 +14,7 @@ export const useData = (): DataContextValue => {
 };
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
-  const { refreshInterval, currency } = useSettings();
-  const data = useMarketData(refreshInterval, currency);
-  return <DataContext.Provider value={data as DataContextValue}>{children}</DataContext.Provider>;
+  const { refreshInterval, signalTimeframe } = useSettings();
+  const data = useMarketData(refreshInterval, signalTimeframe);
+  return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
 };

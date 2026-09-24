@@ -1,33 +1,32 @@
 {
   "expo": {
-    "name": "Btc Dashboard",
-    "slug": "abacusai-mobile-apps",
-    "version": "1.0.0",
+    "name": "BTC Analyst",
+    "slug": "btc-analyst",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.abacusai.btcdashboard.t1790028157",
-      "buildNumber": "1"
+      "bundleIdentifier": "com.btcanalyst.app",
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.abacusai.btcdashboard.t1790028157",
-      "versionCode": 1,
+      "package": "com.btcanalyst.app",
+      "versionCode": 2,
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
           "data": [
             {
-              "scheme": "abacusai1790028157",
+              "scheme": "btcanalyst",
               "host": "*"
             }
           ],
@@ -44,8 +43,19 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#010611",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ]
     ],
-    "scheme": "abacusai1790028157"
+    "scheme": "btcanalyst",
+    "description": "A deterministic, rules-based Bitcoin dashboard. All analysis runs on-device.",
+    "primaryColor": "#00D2FF"
   }
 }

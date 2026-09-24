@@ -20,6 +20,11 @@ export const Colors = {
   buy: '#66BB6A',
   sell: '#FF5252',
   strongSell: '#FF1744',
+  // Regime colours: a bear regime is a state of the market, not an alarm, so
+  // it reads amber-to-red rather than the same red as a sell signal.
+  regimeBull: '#00E676',
+  regimeNeutral: '#FFB300',
+  regimeBear: '#FF7043',
 } as const;
 
 export const Spacing = {
@@ -70,12 +75,23 @@ export const Typography = {
 
 export const getSignalColor = (signal: string): string => {
   switch (signal) {
-    case 'STRONG BUY': return Colors.strongBuy;
-    case 'BUY': return Colors.buy;
-    case 'SELL': return Colors.sell;
-    case 'STRONG SELL': return Colors.strongSell;
+    case 'ACCUMULATE_STRONG':
+    case 'ACCUMULATE HARD': return Colors.strongBuy;
+    case 'ACCUMULATE': return Colors.buy;
+    case 'HOLD': return Colors.neutral;
+    case 'REDUCE': return Colors.sell;
+    case 'EXIT':
+    case 'STAND ASIDE': return Colors.strongSell;
     case 'BULLISH': return Colors.bullish;
     case 'BEARISH': return Colors.bearish;
     default: return Colors.neutral;
+  }
+};
+
+export const getRegimeColor = (regime: string): string => {
+  switch (regime) {
+    case 'BULL': return Colors.regimeBull;
+    case 'BEAR': return Colors.regimeBear;
+    default: return Colors.regimeNeutral;
   }
 };

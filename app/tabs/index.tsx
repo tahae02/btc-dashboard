@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,7 +12,7 @@ import { SignalBadge } from '../../src/components/SignalBadge';
 import { FearGreedGauge } from '../../src/components/FearGreedGauge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
 import { ErrorRetry } from '../../src/components/ErrorRetry';
-import { Colors, Typography, Spacing, BorderRadius, getSignalColor, Fonts } from '../../src/constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../../src/constants/theme';
 
 const formatNum = (n: number | null | undefined, decimals = 0): string => {
   if (n == null || isNaN(n)) return '--';
@@ -34,24 +34,20 @@ export default function DashboardScreen() {
   const router = useRouter();
   const data = useData();
   const settings = useSettings();
-  const candles = data?.ohlcv?.['1D'] ?? [];
-  const indicators = useIndicators(candles);
+
+  const candles = data?.ohlcv?.[settings.signalTimeframe] ?? [];
+  const indicators = useIndicators(candles, settings.signalTimeframe);
   const signal = useSignalEngine({
     indicators,
     currentPrice: data?.price?.price ?? 0,
+    fearGreed: data?.fearGreed?.current?.value ?? null,
     settings,
   });
 
   const price = data?.price;
   const isUp = (price?.change_24h_pct ?? 0) >= 0;
   const fg = data?.fearGreed;
-
-  const miniIndicators = useMemo(() => [
-    { name: 'RSI', value: indicators?.rsi?.value?.toFixed?.(1) ?? '--', signal: signal?.indicators?.find?.(i => i?.name?.includes?.('RSI') && !i?.name?.includes?.('Stoch'))?.signal ?? 'NEUTRAL' },
-    { name: 'MACD', value: indicators?.macd?.histogram?.toFixed?.(0) ?? '--', signal: signal?.indicators?.find?.(i => i?.name?.includes?.('MACD'))?.signal ?? 'NEUTRAL' },
-    { name: 'StochRSI', value: indicators?.stochRSI?.k?.toFixed?.(1) ?? '--', signal: signal?.indicators?.find?.(i => i?.name?.includes?.('Stoch'))?.signal ?? 'NEUTRAL' },
-    { name: 'BBands', value: signal?.indicators?.find?.(i => i?.name?.includes?.('Bollinger'))?.value ?? '--', signal: signal?.indicators?.find?.(i => i?.name?.includes?.('Bollinger'))?.signal ?? 'NEUTRAL' },
-  ], [indicators, signal]);
+  const hasSignal = candles.length >= 200;
 
   const priceDisplay = price?.price != null
     ? settings?.currency === 'GBP'
@@ -62,16 +58,13 @@ export default function DashboardScreen() {
   if (data?.isLoading && !price) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>BTC Analyst</Text>
-        </View>
+        <View style={styles.header}><Text style={styles.headerTitle}>BTC Analyst</Text></View>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <SkeletonLoader width="100%" height={140} />
-          <SkeletonLoader width="100%" height={60} style={{ marginTop: Spacing.md }} />
+          <SkeletonLoader width="100%" height={110} style={{ marginTop: Spacing.md }} />
           <View style={styles.statsGrid}>
-            {[1, 2, 3, 4].map(i => <SkeletonLoader key={i} width="48%" height={80} />)}
+            {[1, 2, 3, 4].map((i) => <SkeletonLoader key={i} width="48%" height={80} />)}
           </View>
-          <SkeletonLoader width="100%" height={120} style={{ marginTop: Spacing.md }} />
           <SkeletonLoader width="100%" height={140} style={{ marginTop: Spacing.md }} />
         </ScrollView>
       </SafeAreaView>
@@ -84,7 +77,7 @@ export default function DashboardScreen() {
         <Text style={styles.headerTitle}>BTC Analyst</Text>
         <View style={styles.headerRight}>
           <Text style={styles.timestamp}>{timeAgo(data?.lastUpdated)}</Text>
-          <Pressable onPress={() => data?.refresh?.()} hitSlop={8}>
+          <Pressable onPress={() => data?.refresh?.()} hitSlop={8} accessibilityLabel="Refresh market data">
             <Ionicons name="refresh" size={20} color={Colors.accent} />
           </Pressable>
         </View>
@@ -97,49 +90,85 @@ export default function DashboardScreen() {
       >
         {data?.error && <ErrorRetry message={data.error} onRetry={() => data?.refresh?.()} />}
 
-        {/* Hero Price Card */}
+        {/* Price */}
         <GlassCard style={styles.heroCard}>
           <View style={styles.heroTop}>
             <Ionicons name="logo-bitcoin" size={24} color={Colors.neutral} />
             <Text style={styles.btcLabel}>Bitcoin</Text>
           </View>
           <Text style={styles.priceText}>{priceDisplay}</Text>
-          <View style={styles.changeRow}>
-            <Text style={[styles.changeText, { color: isUp ? Colors.bullish : Colors.bearish }]}>
-              {isUp ? '▲' : '▼'} {formatNum(Math.abs(price?.change_24h ?? 0), 0)} ({(price?.change_24h_pct ?? 0).toFixed(2)}%)
-            </Text>
-          </View>
+          <Text style={[styles.changeText, { color: isUp ? Colors.bullish : Colors.bearish }]}>
+            {isUp ? '▲' : '▼'} {formatNum(Math.abs(price?.change_24h ?? 0), 0)} ({(price?.change_24h_pct ?? 0).toFixed(2)}%)
+          </Text>
           <View style={styles.hlRow}>
             <Text style={styles.hlText}>24h High: {formatNum(price?.high_24h, 0)}</Text>
             <Text style={styles.hlText}>24h Low: {formatNum(price?.low_24h, 0)}</Text>
           </View>
         </GlassCard>
 
-        {/* Signal Badge Card */}
+        {/* The advice. Regime first, because it governs everything below it. */}
         <Pressable onPress={() => router.push('/tabs/signals')}>
-          <GlassCard style={styles.signalCard}>
-            <View style={styles.signalRow}>
+          <GlassCard>
+            {!hasSignal ? (
               <View>
-                <SignalBadge signal={signal?.overall ?? 'NEUTRAL'} />
-                <Text style={styles.signalConf}>Confidence: {signal?.confidence ?? 0}%</Text>
+                <Text style={styles.sectionTitle}>Building history</Text>
+                <Text style={styles.waitingText}>
+                  Needs 200 closed {settings.signalTimeframe} bars before it will call a regime.
+                  Currently has {candles.length}.
+                </Text>
               </View>
-              <Text style={styles.signalCounts}>
-                {signal?.bullishCount ?? 0} Bullish · {signal?.bearishCount ?? 0} Bearish · {signal?.neutralCount ?? 0} Neutral
-              </Text>
-            </View>
-            <View style={styles.confBar}>
-              <View style={[styles.confFill, { width: `${signal?.confidence ?? 0}%`, backgroundColor: getSignalColor(signal?.overall ?? 'NEUTRAL') }]} />
-            </View>
+            ) : (
+              <>
+                <View style={styles.regimeRow}>
+                  <Text style={styles.regimeLabel}>Market regime</Text>
+                  <View style={[styles.regimePill, { backgroundColor: getRegimeColor(signal.regime) + '22', borderColor: getRegimeColor(signal.regime) }]}>
+                    <Text style={[styles.regimePillText, { color: getRegimeColor(signal.regime) }]}>
+                      {signal.regime} {signal.regimeScore >= 0 ? '+' : ''}{signal.regimeScore}/3
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.actionRow}>
+                  <SignalBadge signal={signal.actionLabel} />
+                  <Text style={styles.convictionText}>Conviction {signal.conviction}%</Text>
+                </View>
+
+                {/* Target allocation is the actual output. A filled bar is far
+                    more legible than a number for "how much should I hold". */}
+                <Text style={styles.allocLabel}>
+                  Target Bitcoin allocation: {(signal.targetAllocation * 100).toFixed(0)}%
+                </Text>
+                <View style={styles.allocBar}>
+                  <View style={[styles.allocFill, { width: `${signal.targetAllocation * 100}%`, backgroundColor: getSignalColor(signal.actionLabel) }]} />
+                </View>
+
+                <Text style={styles.dcaText}>
+                  {signal.dcaMultiplier === 1
+                    ? 'Contribute your usual amount this period.'
+                    : signal.dcaMultiplier > 1
+                    ? `Consider ${signal.dcaMultiplier}× your usual contribution this period.`
+                    : `Consider ${signal.dcaMultiplier}× your usual contribution, holding the rest as cash.`}
+                </Text>
+
+                <Text style={styles.tapHint}>Tap for the full breakdown →</Text>
+              </>
+            )}
           </GlassCard>
         </Pressable>
 
-        {/* Stats Grid */}
+        {/* Kept adjacent to the advice rather than buried in Settings. */}
+        <Text style={styles.disclaimer}>
+          Not financial advice. A rules-based reading of price history, nothing more.
+          Bitcoin has repeatedly fallen more than 70%.
+        </Text>
+
+        {/* Stats */}
         <View style={styles.statsGrid}>
           {[
             { label: 'Market Cap', value: formatNum(price?.market_cap) },
             { label: '24h Volume', value: formatNum(price?.volume_24h) },
             { label: 'BTC Dominance', value: data?.btcDominance != null ? `${data.btcDominance.toFixed(1)}%` : '--' },
-            { label: 'ATR Volatility', value: indicators?.atr != null ? `$${indicators.atr.toFixed(0)}` : '--' },
+            { label: 'Volatility (ATR)', value: indicators?.atrPct != null ? `${indicators.atrPct.toFixed(1)}%` : '--' },
           ].map((stat, i) => (
             <GlassCard key={i} style={styles.statCard}>
               <Text style={styles.statLabel}>{stat.label}</Text>
@@ -148,58 +177,30 @@ export default function DashboardScreen() {
           ))}
         </View>
 
-        {/* Mini Indicators */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-          {miniIndicators.map((ind, i) => (
-            <Pressable key={i} onPress={() => router.push('/tabs/signals')}>
-              <View style={styles.chip}>
-                <View style={[styles.chipDot, { backgroundColor: getSignalColor(ind.signal) }]} />
-                <Text style={styles.chipName}>{ind.name}</Text>
-                <Text style={styles.chipValue}>{ind.value}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
-
         {/* Fear & Greed */}
         {fg && (
           <GlassCard style={styles.gaugeCard}>
-            <Text style={styles.sectionTitle}>Fear & Greed Index</Text>
-            <FearGreedGauge
-              value={fg?.current?.value ?? 50}
-              label={fg?.current?.value_classification ?? 'Neutral'}
-            />
+            <Text style={styles.sectionTitle}>Fear &amp; Greed Index</Text>
+            <FearGreedGauge value={fg?.current?.value ?? 50} label={fg?.current?.value_classification ?? 'Neutral'} />
           </GlassCard>
         )}
 
-        {/* Price Projections */}
-        {signal?.projections && (
-          <GlassCard style={styles.projectionsCard}>
-            <Text style={styles.sectionTitle}>Price Projections</Text>
-            <View style={styles.projRow}>
-              <Text style={styles.projLabel}>24h Range:</Text>
-              <Text style={styles.projValue}>
-                ${signal.projections.range24h.low.toLocaleString(undefined, { maximumFractionDigits: 0 })} – ${signal.projections.range24h.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </Text>
-            </View>
-            <View style={styles.scenarioRow}>
-              {[
-                { label: 'Bear', value: signal.projections.scenario7d.bear, color: Colors.bearish },
-                { label: 'Base', value: signal.projections.scenario7d.base, color: Colors.neutral },
-                { label: 'Bull', value: signal.projections.scenario7d.bull, color: Colors.bullish },
-              ].map((s, i) => (
-                <View key={i} style={styles.scenarioCol}>
-                  <Text style={[styles.scenarioLabel, { color: s.color }]}>{s.label} 7d</Text>
-                  <Text style={styles.scenarioValue}>${s.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                </View>
-              ))}
-            </View>
-            {signal.projections.nextResistance != null && (
-              <Text style={styles.projLevel}>↑ Resistance: ${signal.projections.nextResistance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-            )}
-            {signal.projections.nextSupport != null && (
-              <Text style={styles.projLevel}>↓ Support: ${signal.projections.nextSupport.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-            )}
+        {/* Volatility bands. Explicitly not a forecast. */}
+        {hasSignal && signal.projections && (
+          <GlassCard>
+            <Text style={styles.sectionTitle}>Expected range</Text>
+            {[
+              { label: 'Next 24h', r: signal.projections.range1d },
+              { label: 'Next 7d', r: signal.projections.range7d },
+            ].map((row) => (
+              <View key={row.label} style={styles.projRow}>
+                <Text style={styles.projLabel}>{row.label}</Text>
+                <Text style={styles.projValue}>
+                  ${Math.max(0, row.r.low).toLocaleString(undefined, { maximumFractionDigits: 0 })} – ${row.r.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </Text>
+              </View>
+            ))}
+            <Text style={styles.projNote}>{signal.projections.note}</Text>
           </GlassCard>
         )}
 
@@ -221,34 +222,30 @@ const styles = StyleSheet.create({
   heroTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btcLabel: { ...Typography.body, color: Colors.textSecondary },
   priceText: { ...Typography.priceDisplay, marginTop: 8 },
-  changeRow: { marginTop: 4 },
-  changeText: { ...Typography.monoData, fontSize: 16 },
+  changeText: { ...Typography.monoData, fontSize: 16, marginTop: 4 },
   hlRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: Spacing.sm },
   hlText: { ...Typography.caption, color: Colors.textTertiary },
-  signalCard: {},
-  signalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  signalConf: { ...Typography.caption, marginTop: 4 },
-  signalCounts: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'right', maxWidth: '55%' },
-  confBar: { height: 4, backgroundColor: Colors.elevated, borderRadius: 2, marginTop: Spacing.sm, overflow: 'hidden' },
-  confFill: { height: '100%', borderRadius: 2 },
+  regimeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  regimeLabel: { ...Typography.caption, color: Colors.textSecondary },
+  regimePill: { borderRadius: BorderRadius.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
+  regimePillText: { ...Typography.caption, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  convictionText: { ...Typography.caption, color: Colors.textSecondary },
+  allocLabel: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.md, marginBottom: 6 },
+  allocBar: { height: 8, backgroundColor: Colors.elevated, borderRadius: 4, overflow: 'hidden' },
+  allocFill: { height: '100%', borderRadius: 4 },
+  dcaText: { ...Typography.body, color: Colors.textPrimary, marginTop: Spacing.md, lineHeight: 22 },
+  tapHint: { ...Typography.caption, color: Colors.accent, marginTop: Spacing.md },
+  waitingText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22 },
+  disclaimer: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, paddingHorizontal: 4 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, justifyContent: 'space-between' },
   statCard: { width: '47%', padding: Spacing.md },
   statLabel: { ...Typography.caption, color: Colors.textTertiary },
   statValue: { ...Typography.subheading, fontFamily: Fonts.mono, marginTop: 4 },
-  chipRow: { flexGrow: 0 },
-  chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, borderRadius: BorderRadius.pill, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, borderWidth: 1, borderColor: Colors.cardBorder },
-  chipDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  chipName: { ...Typography.caption, color: Colors.textSecondary, marginRight: 4 },
-  chipValue: { ...Typography.monoData, fontSize: 12 },
   gaugeCard: { alignItems: 'center' },
   sectionTitle: { ...Typography.subheading, marginBottom: Spacing.md, alignSelf: 'flex-start' },
-  projectionsCard: {},
   projRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.sm },
   projLabel: { ...Typography.body, color: Colors.textSecondary },
   projValue: { ...Typography.monoData },
-  scenarioRow: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: Spacing.md },
-  scenarioCol: { alignItems: 'center' },
-  scenarioLabel: { ...Typography.caption, fontWeight: '600' },
-  scenarioValue: { ...Typography.monoData, marginTop: 4 },
-  projLevel: { ...Typography.monoData, color: Colors.textSecondary, marginTop: 4 },
+  projNote: { ...Typography.caption, color: Colors.textTertiary, marginTop: Spacing.sm, lineHeight: 17 },
 });

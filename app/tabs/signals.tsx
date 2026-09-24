@@ -9,44 +9,66 @@ import { useSignalEngine } from '../../src/hooks/useSignalEngine';
 import { GlassCard } from '../../src/components/GlassCard';
 import { SignalBadge } from '../../src/components/SignalBadge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
-import { Colors, Typography, Spacing, getSignalColor, Fonts } from '../../src/constants/theme';
-import { IndicatorSignal } from '../../src/types';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../../src/constants/theme';
+import type { IndicatorReading, IndicatorFamily } from '../../src/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+/**
+ * Readings are grouped by the layer they belong to, and the groups are shown
+ * in the order they are applied. The point is to make the hierarchy visible:
+ * the regime decides the call, the faster layers only adjust it, and context
+ * rows do not vote at all. The old screen listed nine equal-looking rows,
+ * which implied nine independent opinions that did not exist.
+ */
+const FAMILY_ORDER: IndicatorFamily[] = ['REGIME', 'STRETCH', 'MOMENTUM', 'SENTIMENT', 'CONTEXT'];
+
+const FAMILY_TITLE: Record<IndicatorFamily, string> = {
+  REGIME: '1. Regime — sets the base allocation',
+  STRETCH: '2. Stretch — adjusts within the regime',
+  MOMENTUM: '3. Momentum — confirms or tempers',
+  SENTIMENT: '4. Sentiment — contrarian, extremes only',
+  CONTEXT: 'Context — does not affect the allocation',
+};
+
 export default function SignalsScreen() {
   const data = useData();
   const settings = useSettings();
-  const candles = data?.ohlcv?.['1D'] ?? [];
-  const indicators = useIndicators(candles);
+
+  const candles = data?.ohlcv?.[settings.signalTimeframe] ?? [];
+  const indicators = useIndicators(candles, settings.signalTimeframe);
   const signal = useSignalEngine({
     indicators,
     currentPrice: data?.price?.price ?? 0,
+    fearGreed: data?.fearGreed?.current?.value ?? null,
     settings,
   });
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-
   const toggle = useCallback((name: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded(p => ({ ...p, [name]: !p[name] }));
+    setExpanded((p) => ({ ...p, [name]: !p[name] }));
   }, []);
 
-  const totalIndicators = (signal?.indicators?.length ?? 0);
+  const price = data?.price?.price ?? 0;
+  const hasSignal = candles.length >= 200;
 
   if (data?.isLoading && !data?.price) {
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-          <SkeletonLoader width="100%" height={120} />
-          <SkeletonLoader width="100%" height={40} style={{ marginTop: Spacing.md }} />
-          {[1, 2, 3, 4, 5].map(i => <SkeletonLoader key={i} width="100%" height={60} style={{ marginTop: Spacing.sm }} />)}
+          <SkeletonLoader width="100%" height={180} />
+          {[1, 2, 3, 4].map((i) => <SkeletonLoader key={i} width="100%" height={70} style={{ marginTop: Spacing.sm }} />)}
         </ScrollView>
       </SafeAreaView>
     );
   }
+
+  const grouped = FAMILY_ORDER
+    .map((family) => ({ family, rows: (signal?.readings ?? []).filter((r) => r.family === family) }))
+    .filter((g) => g.rows.length > 0);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -55,120 +77,127 @@ export default function SignalsScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={data?.isLoading ?? false} onRefresh={() => data?.refresh?.()} tintColor={Colors.accent} />}
       >
-        {/* Overall Signal Header */}
-        <GlassCard style={styles.overallCard}>
-          <SignalBadge signal={signal?.overall ?? 'NEUTRAL'} />
-          <View style={styles.confRow}>
-            <Text style={styles.confText}>Confidence: {signal?.confidence ?? 0}%</Text>
-            <View style={styles.confBar}>
-              <View style={[styles.confFill, { width: `${signal?.confidence ?? 0}%`, backgroundColor: getSignalColor(signal?.overall ?? 'NEUTRAL') }]} />
-            </View>
-          </View>
-          <View style={styles.entryExitRow}>
-            {signal?.entryPrice != null && (
-              <View style={styles.entryExitCol}>
-                <Text style={styles.eeLabel}>Entry (Support)</Text>
-                <Text style={[styles.eeValue, { color: Colors.bullish }]}>${signal.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-              </View>
-            )}
-            {signal?.exitPrice != null && (
-              <View style={styles.entryExitCol}>
-                <Text style={styles.eeLabel}>Target (Resistance)</Text>
-                <Text style={[styles.eeValue, { color: Colors.bearish }]}>${signal.exitPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-              </View>
-            )}
-          </View>
-          <Text style={styles.basedOn}>Based on {totalIndicators} indicators</Text>
-        </GlassCard>
-
-        {/* Signal Summary Bar */}
-        <View style={styles.summaryBar}>
-          {(signal?.bullishCount ?? 0) > 0 && (
-            <View style={[styles.summarySegment, { flex: signal?.bullishCount ?? 0, backgroundColor: Colors.bullish }]} />
-          )}
-          {(signal?.neutralCount ?? 0) > 0 && (
-            <View style={[styles.summarySegment, { flex: signal?.neutralCount ?? 0, backgroundColor: Colors.neutral }]} />
-          )}
-          {(signal?.bearishCount ?? 0) > 0 && (
-            <View style={[styles.summarySegment, { flex: signal?.bearishCount ?? 0, backgroundColor: Colors.bearish }]} />
-          )}
-        </View>
-        <Text style={styles.summaryText}>
-          {signal?.bullishCount ?? 0} Bullish · {signal?.neutralCount ?? 0} Neutral · {signal?.bearishCount ?? 0} Bearish
-        </Text>
-
-        {/* Indicator Signal List */}
-        {(signal?.indicators ?? []).map((ind: IndicatorSignal, i: number) => {
-          const isExpanded = expanded[ind?.name ?? ''] ?? false;
-          return (
-            <Pressable key={ind?.name ?? i} onPress={() => toggle(ind?.name ?? '')}>
-              <GlassCard style={styles.indCard}>
-                <View style={styles.indHeader}>
-                  <View style={styles.indLeft}>
-                    <Text style={styles.indName}>{ind?.name ?? ''}</Text>
-                    <Text style={styles.indValue}>{ind?.value ?? '--'}</Text>
-                  </View>
-                  <View style={styles.indRight}>
-                    <SignalBadge signal={ind?.signal ?? 'NEUTRAL'} compact />
-                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} style={{ marginLeft: 8 }} />
-                  </View>
+        {!hasSignal ? (
+          <GlassCard>
+            <Text style={styles.sectionTitle}>Not enough history yet</Text>
+            <Text style={styles.bodyText}>
+              The regime read needs 200 closed {settings.signalTimeframe} bars. There are {candles.length}.
+              Pull to refresh, or pick a shorter timeframe in Settings.
+            </Text>
+          </GlassCard>
+        ) : (
+          <>
+            <GlassCard>
+              <View style={styles.regimeRow}>
+                <Text style={styles.regimeLabel}>Market regime</Text>
+                <View style={[styles.regimePill, { backgroundColor: getRegimeColor(signal.regime) + '22', borderColor: getRegimeColor(signal.regime) }]}>
+                  <Text style={[styles.regimePillText, { color: getRegimeColor(signal.regime) }]}>
+                    {signal.regime} {signal.regimeScore >= 0 ? '+' : ''}{signal.regimeScore}/3
+                  </Text>
                 </View>
-                {isExpanded && (
-                  <View style={styles.indExpanded}>
-                    <Text style={styles.indExplanation}>{ind?.explanation ?? ''}</Text>
-                    {ind?.thresholds && <Text style={styles.indThresholds}>{ind.thresholds}</Text>}
+              </View>
+
+              <SignalBadge signal={signal.actionLabel} />
+
+              <Text style={styles.allocLabel}>
+                Target Bitcoin allocation: {(signal.targetAllocation * 100).toFixed(0)}%
+              </Text>
+              <View style={styles.allocBar}>
+                <View style={[styles.allocFill, { width: `${signal.targetAllocation * 100}%`, backgroundColor: getSignalColor(signal.actionLabel) }]} />
+              </View>
+
+              <View style={styles.metaGrid}>
+                <View style={styles.metaCell}>
+                  <Text style={styles.metaLabel}>Conviction</Text>
+                  <Text style={styles.metaValue}>{signal.conviction}%</Text>
+                  <Text style={styles.metaHint}>agreement between layers</Text>
+                </View>
+                <View style={styles.metaCell}>
+                  <Text style={styles.metaLabel}>DCA this period</Text>
+                  <Text style={styles.metaValue}>{signal.dcaMultiplier}×</Text>
+                  <Text style={styles.metaHint}>vs your usual amount</Text>
+                </View>
+              </View>
+
+              <Text style={styles.disclaimer}>
+                Not financial advice. This reads price history by fixed rules. It cannot know
+                anything about the future, and Bitcoin has repeatedly fallen more than 70%.
+              </Text>
+            </GlassCard>
+
+            {grouped.map((group) => (
+              <View key={group.family} style={styles.group}>
+                <Text style={styles.groupTitle}>{FAMILY_TITLE[group.family]}</Text>
+                {group.rows.map((reading: IndicatorReading) => {
+                  const isOpen = expanded[reading.name] ?? false;
+                  return (
+                    <Pressable key={reading.name} onPress={() => toggle(reading.name)}>
+                      <GlassCard style={styles.readingCard}>
+                        <View style={styles.readingHeader}>
+                          <View style={styles.readingLeft}>
+                            <Text style={styles.readingName}>{reading.name}</Text>
+                            <Text style={styles.readingValue}>{reading.value}</Text>
+                          </View>
+                          <View style={styles.readingRight}>
+                            {/* Stating the weight inline stops a context row
+                                from reading like a buy or sell call. */}
+                            <Text style={styles.weightText}>{reading.weight}</Text>
+                            <SignalBadge signal={reading.signal} compact />
+                            <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} style={{ marginLeft: 6 }} />
+                          </View>
+                        </View>
+                        {isOpen && (
+                          <View style={styles.readingBody}>
+                            <Text style={styles.readingExplanation}>{reading.explanation}</Text>
+                          </View>
+                        )}
+                      </GlassCard>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+
+            {signal.projections && (
+              <GlassCard>
+                <Text style={styles.sectionTitle}>Levels &amp; expected range</Text>
+                {signal.projections.nextSupport != null && (
+                  <View style={styles.projRow}>
+                    <Text style={styles.projLabel}>↓ Nearest support</Text>
+                    <View>
+                      <Text style={styles.projValue}>${signal.projections.nextSupport.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
+                      {price > 0 && (
+                        <Text style={styles.projPct}>{(((price - signal.projections.nextSupport) / price) * 100).toFixed(1)}% below</Text>
+                      )}
+                    </View>
                   </View>
                 )}
+                {signal.projections.nextResistance != null && (
+                  <View style={styles.projRow}>
+                    <Text style={styles.projLabel}>↑ Nearest resistance</Text>
+                    <View>
+                      <Text style={styles.projValue}>${signal.projections.nextResistance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
+                      {price > 0 && (
+                        <Text style={styles.projPct}>{(((signal.projections.nextResistance - price) / price) * 100).toFixed(1)}% above</Text>
+                      )}
+                    </View>
+                  </View>
+                )}
+                {[
+                  { label: 'Next 24h range', r: signal.projections.range1d },
+                  { label: 'Next 7d range', r: signal.projections.range7d },
+                ].map((row) => (
+                  <View key={row.label} style={styles.projRow}>
+                    <Text style={styles.projLabel}>{row.label}</Text>
+                    <Text style={styles.projValue}>
+                      ${Math.max(0, row.r.low).toLocaleString(undefined, { maximumFractionDigits: 0 })} – ${row.r.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </Text>
+                  </View>
+                ))}
+                <Text style={styles.projNote}>{signal.projections.note}</Text>
               </GlassCard>
-            </Pressable>
-          );
-        })}
-
-        {/* Price Targets */}
-        {signal?.projections && (
-          <GlassCard style={styles.targetsCard}>
-            <Text style={styles.sectionTitle}>Price Targets</Text>
-            {signal.projections.nextResistance != null && (
-              <View style={styles.targetRow}>
-                <Text style={styles.targetLabel}>↑ Next Resistance</Text>
-                <View>
-                  <Text style={styles.targetValue}>${signal.projections.nextResistance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                  {(data?.price?.price ?? 0) > 0 && (
-                    <Text style={styles.targetPct}>{(((signal.projections.nextResistance - (data?.price?.price ?? 0)) / (data?.price?.price ?? 1)) * 100).toFixed(1)}% away</Text>
-                  )}
-                </View>
-              </View>
             )}
-            {signal.projections.nextSupport != null && (
-              <View style={styles.targetRow}>
-                <Text style={styles.targetLabel}>↓ Next Support</Text>
-                <View>
-                  <Text style={styles.targetValue}>${signal.projections.nextSupport.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                  {(data?.price?.price ?? 0) > 0 && (
-                    <Text style={styles.targetPct}>{((((data?.price?.price ?? 0) - signal.projections.nextSupport) / (data?.price?.price ?? 1)) * 100).toFixed(1)}% away</Text>
-                  )}
-                </View>
-              </View>
-            )}
-            <View style={styles.targetRow}>
-              <Text style={styles.targetLabel}>24h Range</Text>
-              <Text style={styles.targetValue}>
-                ${signal.projections.range24h.low.toLocaleString(undefined, { maximumFractionDigits: 0 })} – ${signal.projections.range24h.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </Text>
-            </View>
-            <View style={styles.scenarioRow}>
-              {[
-                { label: 'Bear 7d', value: signal.projections.scenario7d.bear, color: Colors.bearish },
-                { label: 'Base 7d', value: signal.projections.scenario7d.base, color: Colors.neutral },
-                { label: 'Bull 7d', value: signal.projections.scenario7d.bull, color: Colors.bullish },
-              ].map((s, idx) => (
-                <View key={idx} style={styles.scenarioCol}>
-                  <Text style={[styles.scenarioLabel, { color: s.color }]}>{s.label}</Text>
-                  <Text style={styles.scenarioValue}>${s.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                </View>
-              ))}
-            </View>
-          </GlassCard>
+          </>
         )}
 
         <View style={{ height: 32 }} />
@@ -181,36 +210,35 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   scroll: { flex: 1 },
   content: { padding: Spacing.lg, gap: Spacing.md },
-  overallCard: {},
-  confRow: { marginTop: Spacing.md },
-  confText: { ...Typography.caption, marginBottom: 4 },
-  confBar: { height: 4, backgroundColor: Colors.elevated, borderRadius: 2, overflow: 'hidden' },
-  confFill: { height: '100%', borderRadius: 2 },
-  entryExitRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: Spacing.lg },
-  entryExitCol: { alignItems: 'center' },
-  eeLabel: { ...Typography.caption, color: Colors.textTertiary },
-  eeValue: { ...Typography.subheading, fontFamily: Fonts.mono, marginTop: 2 },
-  basedOn: { ...Typography.caption, color: Colors.textTertiary, marginTop: Spacing.md, textAlign: 'center' },
-  summaryBar: { flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: Colors.elevated },
-  summarySegment: { height: '100%' },
-  summaryText: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'center', marginTop: 4 },
-  indCard: { marginTop: 0 },
-  indHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  indLeft: { flex: 1 },
-  indName: { ...Typography.body, fontWeight: '600' },
-  indValue: { ...Typography.monoData, color: Colors.textSecondary, marginTop: 2 },
-  indRight: { flexDirection: 'row', alignItems: 'center' },
-  indExpanded: { marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
-  indExplanation: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22 },
-  indThresholds: { ...Typography.caption, color: Colors.textTertiary, marginTop: Spacing.sm, fontStyle: 'italic' },
   sectionTitle: { ...Typography.subheading, marginBottom: Spacing.md },
-  targetsCard: {},
-  targetRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
-  targetLabel: { ...Typography.body, color: Colors.textSecondary },
-  targetValue: { ...Typography.monoData, textAlign: 'right' },
-  targetPct: { ...Typography.caption, color: Colors.textTertiary, textAlign: 'right' },
-  scenarioRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
-  scenarioCol: { alignItems: 'center' },
-  scenarioLabel: { ...Typography.caption, fontWeight: '600' },
-  scenarioValue: { ...Typography.monoData, marginTop: 4 },
+  bodyText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22 },
+  regimeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  regimeLabel: { ...Typography.caption, color: Colors.textSecondary },
+  regimePill: { borderRadius: BorderRadius.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
+  regimePillText: { ...Typography.caption, fontWeight: '700' },
+  allocLabel: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.md, marginBottom: 6 },
+  allocBar: { height: 8, backgroundColor: Colors.elevated, borderRadius: 4, overflow: 'hidden' },
+  allocFill: { height: '100%', borderRadius: 4 },
+  metaGrid: { flexDirection: 'row', marginTop: Spacing.lg, gap: Spacing.md },
+  metaCell: { flex: 1 },
+  metaLabel: { ...Typography.caption, color: Colors.textTertiary },
+  metaValue: { ...Typography.subheading, fontFamily: Fonts.mono, marginTop: 2 },
+  metaHint: { ...Typography.caption, color: Colors.textTertiary, fontSize: 11, marginTop: 2 },
+  disclaimer: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: Spacing.lg },
+  group: { gap: Spacing.sm },
+  groupTitle: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700', marginTop: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5 },
+  readingCard: { paddingVertical: Spacing.md },
+  readingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  readingLeft: { flex: 1 },
+  readingName: { ...Typography.body, fontWeight: '600' },
+  readingValue: { ...Typography.monoData, color: Colors.textSecondary, marginTop: 2 },
+  readingRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  weightText: { ...Typography.caption, color: Colors.textTertiary, fontSize: 10 },
+  readingBody: { marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
+  readingExplanation: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22, fontSize: 15 },
+  projRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  projLabel: { ...Typography.body, color: Colors.textSecondary },
+  projValue: { ...Typography.monoData, textAlign: 'right' },
+  projPct: { ...Typography.caption, color: Colors.textTertiary, textAlign: 'right' },
+  projNote: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17 },
 });

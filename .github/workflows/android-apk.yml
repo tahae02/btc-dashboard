@@ -1,0 +1,132 @@
+name: Build Android APK
+
+# Builds a standalone, installable Android app on GitHub's servers and
+# publishes it at a fixed link that never changes:
+#
+#   https://github.com/tahae02/btc-dashboard/releases/download/apk-latest/btc-analyst.apk
+#
+# Unlike Expo Go, the result carries its own code. It opens without a PC
+# running, keeps working when the phone sleeps, and starts in a second or two
+# rather than waiting for a development server to stream it over Wi-Fi.
+#
+# No Expo account or token is involved. The native project is generated with
+# `expo prebuild` and compiled with Gradle, both here on the runner. (An
+# earlier version of this workflow used Expo's cloud service, which needed an
+# account, a token secret and a one-off terminal step before it could run.)
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    # Documentation, tests and the backtester do not change the app.
+    paths-ignore:
+      - '**.md'
+      - 'backtest/**'
+      - '__tests__/**'
+      - 'scripts/**'
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight build of the same branch.
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # to publish the release that hosts the download link
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack (this project uses Yarn 4)
+        run: corepack enable
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: yarn install --no-immutable
+
+      - name: Stamp a unique version code
+        # Android only installs an update over an existing copy when the new
+        # versionCode is higher. Tie it to the run number so every build is a
+        # valid upgrade of the previous one, with no manual bumping.
+        run: |
+          node -e '
+            const fs = require("fs");
+            const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            app.expo.android.versionCode = 1000 + Number(process.env.GITHUB_RUN_NUMBER);
+            fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
+            console.log("versionCode", app.expo.android.versionCode);
+          '
+
+      - name: Generate the native Android project
+        run: yarn expo prebuild --platform android --no-install
+        env:
+          EXPO_NO_TELEMETRY: '1'
+
+      - name: Confirm the signing key is the stable one
+        # An update only installs over an existing copy if both are signed
+        # with the same key. The Expo template ships a fixed keystore and the
+        # release build is signed with it. Print its fingerprint so any change
+        # between builds is visible in the log, and fail loudly if it is
+        # missing rather than silently signing with a random key.
+        run: |
+          if [ ! -f android/app/debug.keystore ]; then
+            echo "::error::android/app/debug.keystore is missing, so each build would be signed with a different key and updates would not install over each other."
+            exit 1
+          fi
+          keytool -list -v -keystore android/app/debug.keystore -storepass android | grep 'SHA256:'
+
+      - name: Compile the release APK
+        working-directory: android
+        # arm64-v8a only: every Android phone sold in recent years is 64-bit
+        # ARM, and building one architecture instead of four cuts the native
+        # compile time roughly fourfold.
+        run: |
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> gradle.properties
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+        env:
+          EXPO_NO_TELEMETRY: '1'
+
+      - name: Collect the APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/btc-analyst.apk
+          ls -la out
+          sha256sum out/btc-analyst.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: btc-analyst-apk
+          path: out/btc-analyst.apk
+          retention-days: 30
+
+      - name: Publish at the fixed download link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          Latest standalone build of BTC Analyst, from \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA::7}.
+
+          **To install:** open this page on your Android phone, tap \`btc-analyst.apk\` below, then open the download. Android will ask you to allow installing apps from your browser; allow it once.
+
+          **To update:** download it again and install over the top. Your settings are kept.
+
+          Signed with the Expo template's shared development key. That is fine for installing on your own phone, but not suitable for publishing to the Play Store.
+          EOF
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest out/btc-analyst.apk \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "BTC Analyst: latest build" \
+            --notes-file notes.md
+          echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/apk-latest/btc-analyst.apk"

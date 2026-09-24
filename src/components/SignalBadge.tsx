@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { SignalStrength, SignalDirection } from '../types';
+import type { SignalDirection } from '../types';
 import { getSignalColor, Typography, BorderRadius } from '../constants/theme';
 
 interface Props {
-  signal: SignalStrength | SignalDirection;
+  signal: string | SignalDirection;
   compact?: boolean;
 }
 

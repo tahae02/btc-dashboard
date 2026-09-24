@@ -7,6 +7,21 @@
       "@/*": [
         "./*"
       ]
-    }
-  }
+    },
+    "types": [
+      "node"
+    ],
+    "skipLibCheck": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "backtest/**/*.ts",
+    "__tests__/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".expo",
+    "dist"
+  ]
 }
