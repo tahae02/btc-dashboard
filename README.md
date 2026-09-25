@@ -53,7 +53,9 @@ Volatility (ATR) and support/resistance are shown as **context** and explicitly 
 
 ## Portfolio and track record
 
-**Portfolio tab.** Log each buy or sell: what you spent (fees included), when, and optionally the exact BTC your exchange credited. Leave BTC blank and it is worked out from the market price at that moment, in pounds or dollars. Each trade is stamped with what the signal was saying at the time, frozen so that later engine changes never rewrite what you acted on. Back-dated trades get the signal replayed from the daily history for that day. The tab shows holdings, average cost, P&L (average-cost method), how the price moved 1, 7, 30 and 90 days after each trade, and your buys grouped by the signal they were made on. Trades stay on the phone; export a backup or CSV from the bottom of the tab.
+**Portfolio tab.** Already own Bitcoin? Add a *starting balance*: the total you have put in and the BTC you hold now. Your average cost is worked out in pounds and, at today's rate, dollars. Trades dated before the starting balance are treated as already inside it, so back-logging an old order never counts it twice.
+
+Then log each buy or sell with the figures from your exchange's order details: total, BTC, price per BTC and fee. Any two of total, BTC and price are enough; the third is worked out, and if you enter all three they are checked against each other so a typo cannot skew your average cost. Enter only the total and BTC is worked out from the market price at that moment, in pounds or dollars. Each trade is stamped with what the signal was saying at the time, frozen so that later engine changes never rewrite what you acted on. Back-dated trades get the signal replayed from the daily history for that day. The tab shows holdings, average cost, P&L (average-cost method), how the price moved 1, 7, 30 and 90 days after each trade, and your buys grouped by the signal they were made on. Trades stay on the phone; export a backup or CSV from the bottom of the tab.
 
 **Track record (Signals tab).** Two records, scored the same way:
 
@@ -61,6 +63,8 @@ Volatility (ATR) and support/resistance are shown as **context** and explicitly 
 - *Recorded on this phone.* The signal the app actually showed you, saved once a day as you use it. This is the honest out-of-sample record, and it fills slowly.
 
 The engine does **not** retune itself from either record. Two years of daily data holds fewer than two dozen independent months, and a month's BTC move is routinely ±20%, so a self-tuning engine would fit the noise and look like it was improving while getting worse. Use the record to spot a tier that consistently underperforms, then test a change with `yarn backtest --split` on a decade of real data before keeping it.
+
+**Plain English.** Every indicator, number and label has an (i) next to it that explains what it is and what it tends to mean, for someone who has never traded. The Home tab has an *In plain English* summary of the current market and the advice, built only from numbers the engine produced. Each reading on the Signals tab leads with a plain-English line, with the technical detail one tap away. The book icon on Home (or Settings, *Jargon explained*) opens every term in one place.
 
 ---
 
@@ -209,7 +213,7 @@ The app's banner now gives the reason too, e.g. `(HTTP 403)`, `(timed out after 
 ## Testing
 
 ```bash
-yarn test          # 164 tests, no install required
+yarn test          # 186 tests, no install required
 yarn test:watch
 yarn typecheck
 ```

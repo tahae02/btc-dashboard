@@ -2,7 +2,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseTrades, serialiseBackup, mergeTrades, parseAmount, parseLocalDateTime, parseTradeForm,
-  summariseHoldings, priceAt, tradeOutcomes, tradesToCsv, groupBuysBySignal, type Trade, type SignalStamp,
+  summariseHoldings, priceAt, tradeOutcomes, tradesToCsv, groupBuysBySignal, resolveTradeFigures, fillFromMarket,
+  parseOpening, parseOpeningForm, parseBackup, isCoveredByOpening, type Trade, type SignalStamp, type OpeningPosition,
 } from '../src/services/journal';
 import { formatPct, formatMoney, formatBtc, isFlat } from '../src/services/format';
 import type { OHLCVCandle } from '../src/types';
@@ -18,6 +19,8 @@ const trade = (over: Partial<Trade> = {}): Trade => ({
   fiat: 1000,
   currency: 'GBP',
   btc: 0.02,
+  unitPrice: null,
+  fee: 0,
   marketPriceUsd: 60000,
   signal: null,
   note: '',
@@ -83,7 +86,7 @@ describe('form parsing', () => {
     assert.equal(parseLocalDateTime('01/01/2026', '10:00'), null);
   });
 
-  const form = { side: 'buy' as const, date: '2026-01-02', time: '10:00', amount: '500', currency: 'GBP' as const, btc: '' };
+  const form = { side: 'buy' as const, date: '2026-01-02', time: '10:00', total: '500', currency: 'GBP' as const, btc: '', price: '', fee: '' };
   const NOW = new Date(2026, 5, 1).getTime();
 
   test('BTC may be left blank, to be filled from the market price', () => {
@@ -93,9 +96,17 @@ describe('form parsing', () => {
     assert.equal(r.fiat, 500);
   });
 
+  test('reads the figures off a Coinbase-style order: total, BTC, price and fee', () => {
+    const r = parseTradeForm({ ...form, total: '£250.00', btc: '0.00392063', price: '£63,000.00', fee: '£3.00' }, NOW);
+    assert.ok(r.ok, r.ok ? '' : r.error);
+    assert.equal(r.fiat, 250);
+    assert.equal(r.fee, 3);
+    assert.equal(r.unitPrice, 63000);
+  });
+
   test('rejects a trade in the future, a zero amount and a nonsense BTC figure', () => {
     assert.equal(parseTradeForm({ ...form, date: '2026-07-01' }, NOW).ok, false);
-    assert.equal(parseTradeForm({ ...form, amount: '0' }, NOW).ok, false);
+    assert.equal(parseTradeForm({ ...form, total: '0' }, NOW).ok, false);
     assert.equal(parseTradeForm({ ...form, btc: 'lots' }, NOW).ok, false);
     assert.equal(parseTradeForm({ ...form, btc: '22000000' }, NOW).ok, false);
   });
@@ -260,5 +271,114 @@ describe('format', () => {
     assert.equal(formatMoney(4.34, 'GBP', true), '+£4.34');
     assert.equal(formatBtc(0.005917), '0.005917');
     assert.equal(formatBtc(1), '1');
+  });
+});
+
+describe('resolveTradeFigures', () => {
+  const near = (a: number | null, b: number) => assert.ok(a != null && Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+
+  test('buy: total and BTC give the price before fees', () => {
+    const r = resolveTradeFigures('buy', 250, 0.004, null, 2);
+    assert.ok(r.ok);
+    near(r.figures.unitPrice, 62000);
+  });
+
+  test('buy: BTC and price give the total, fee added', () => {
+    const r = resolveTradeFigures('buy', null, 0.004, 62000, 2);
+    assert.ok(r.ok);
+    near(r.figures.fiat, 250);
+  });
+
+  test('buy: total and price give the BTC, fee taken off first', () => {
+    const r = resolveTradeFigures('buy', 250, null, 62000, 2);
+    assert.ok(r.ok);
+    near(r.figures.btc, 0.004);
+  });
+
+  test('sell: the fee comes off what you receive', () => {
+    const r = resolveTradeFigures('sell', null, 0.01, 60000, 5);
+    assert.ok(r.ok);
+    near(r.figures.fiat, 595);
+    const back = resolveTradeFigures('sell', 595, 0.01, null, 5);
+    assert.ok(back.ok);
+    near(back.figures.unitPrice, 60000);
+  });
+
+  /** A typo in one of three figures must be caught, not averaged into your cost. */
+  test('three figures that do not add up are rejected', () => {
+    const r = resolveTradeFigures('buy', 250, 0.004, 26000, 2);
+    assert.equal(r.ok, false);
+  });
+
+  test('three figures that agree within rounding are accepted', () => {
+    assert.equal(resolveTradeFigures('buy', 250, 0.00392063, 63000, 3).ok, true);
+  });
+
+  test('total alone is allowed and leaves BTC to the market price', () => {
+    const r = resolveTradeFigures('buy', 250, null, null, 2);
+    assert.ok(r.ok);
+    assert.equal(r.figures.btc, null);
+    const filled = fillFromMarket('buy', r.figures, 62000);
+    near(filled!.btc, 0.004);
+    assert.equal(filled!.unitPrice, 62000);
+    assert.equal(fillFromMarket('buy', r.figures, null), null);
+  });
+
+  test('rejects too little information, a fee bigger than the total, and negatives', () => {
+    assert.equal(resolveTradeFigures('buy', null, 0.004, null, null).ok, false);
+    assert.equal(resolveTradeFigures('buy', null, null, 62000, null).ok, false);
+    assert.equal(resolveTradeFigures('buy', 2, 0.001, null, 5).ok, false);
+    assert.equal(resolveTradeFigures('buy', 250, null, null, -1).ok, false);
+  });
+});
+
+describe('starting balance', () => {
+  const opening: OpeningPosition = { time: T0 + 10 * DAY, invested: 5000, currency: 'GBP', btc: 0.1, updatedAt: T0 };
+
+  test('your average cost comes from what you put in and what you hold, in both currencies', () => {
+    const s = summariseHoldings([], 'GBP', LIVE, opening);
+    assert.equal(s.btc, 0.1);
+    assert.equal(s.avgCost, 50000);
+    assert.equal(s.avgCostIn.GBP, 50000);
+    assert.ok(Math.abs((s.avgCostIn.USD ?? 0) - 50000 * (80000 / 60000)) < 1e-6, 'converted at today\'s rate');
+    assert.equal(s.hasOpening, true);
+  });
+
+  /**
+   * Trades on or before the starting balance are already inside it. Counting
+   * them again would double your holdings the moment you back-log an order.
+   */
+  test('trades dated before the starting balance are not counted twice', () => {
+    const before = trade({ time: T0, fiat: 1000, btc: 0.02 });
+    const after = trade({ time: T0 + 20 * DAY, fiat: 1000, btc: 0.02 });
+    const s = summariseHoldings([before, after], 'GBP', LIVE, opening);
+    assert.ok(Math.abs(s.btc - 0.12) < 1e-12);
+    assert.equal(s.costBasis, 6000);
+    assert.equal(s.covered, 1);
+    assert.equal(isCoveredByOpening(before, opening), true);
+    assert.equal(isCoveredByOpening(after, opening), false);
+  });
+
+  test('a sell after the starting balance realises against its average cost', () => {
+    const s = summariseHoldings([trade({ side: 'sell', time: T0 + 20 * DAY, fiat: 3000, btc: 0.05 })], 'GBP', LIVE, opening);
+    assert.ok(Math.abs(s.realised - 500) < 1e-9);
+    assert.ok(Math.abs(s.btc - 0.05) < 1e-12);
+  });
+
+  test('form validation and storage round trip', () => {
+    const r = parseOpeningForm({ invested: '£5,000', btc: '0.1', currency: 'GBP' }, T0, T0);
+    assert.ok(r.ok);
+    assert.deepEqual(parseOpening(JSON.stringify(r.opening)), r.opening);
+    assert.equal(parseOpeningForm({ invested: '0', btc: '0.1', currency: 'GBP' }, T0).ok, false);
+    assert.equal(parseOpeningForm({ invested: '100', btc: '', currency: 'GBP' }, T0).ok, false);
+    assert.equal(parseOpening('{"time": 1}'), null);
+    assert.equal(parseOpening('nope'), null);
+  });
+
+  test('a backup carries the starting balance; an old backup simply has none', () => {
+    const b = parseBackup(serialiseBackup([trade({ id: 'z' })], opening));
+    assert.deepEqual(b.opening, opening);
+    assert.equal(b.trades.length, 1);
+    assert.equal(parseBackup(JSON.stringify({ app: 'btc-analyst', version: 1, trades: [trade({ id: 'y' })] })).opening, null);
   });
 });

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { GlassCard } from './GlassCard';
+import { InfoButton } from './InfoButton';
 import { useJournal } from '../context/JournalContext';
 import { useTrackRecord } from '../hooks/useTrackRecord';
 import { ACTION_LABEL } from '../services/signalEngine';
@@ -75,7 +76,10 @@ export const TrackRecordCard = () => {
 
   return (
     <GlassCard>
-      <Text style={styles.title}>Track record</Text>
+      <View style={styles.titleRow}>
+        <Text style={[styles.title, { marginBottom: 0 }]}>Track record</Text>
+        <InfoButton term="trackRecord" />
+      </View>
 
       {!enoughHistory ? (
         <Text style={styles.body}>Waiting for daily price history to load.</Text>
@@ -159,6 +163,7 @@ export const TrackRecordCard = () => {
 
 const styles = StyleSheet.create({
   title: { ...Typography.subheading, marginBottom: Spacing.sm },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm },
   subtitle: { ...Typography.body, fontWeight: '600', marginBottom: Spacing.sm },
   body: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, marginBottom: Spacing.sm },
   reading: { ...Typography.caption, color: Colors.textPrimary, lineHeight: 18, marginTop: Spacing.sm },

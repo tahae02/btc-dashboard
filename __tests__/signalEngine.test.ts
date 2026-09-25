@@ -1,5 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { GLOSSARY } from '../src/services/glossary';
 import { computeIndicators } from '../src/services/indicators';
 import { computeSignal, detectRegime, computeStretch, DEFAULT_CONFIG } from '../src/services/signalEngine';
 import type { OHLCVCandle, Action } from '../src/types';
@@ -219,6 +220,8 @@ describe('readings', () => {
     for (const r of signalFor(steadyBull, 50).readings) {
       assert.ok(r.weight.length > 0, `${r.name} has no stated weight`);
       assert.ok(r.explanation.length > 20, `${r.name} has no real explanation`);
+      assert.ok(r.plain.length > 20, `${r.name} has no plain-English version`);
+      assert.ok(r.term in GLOSSARY, `${r.name} points at a missing glossary entry "${r.term}"`);
     }
   });
 

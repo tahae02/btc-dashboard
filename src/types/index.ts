@@ -171,7 +171,12 @@ export interface IndicatorReading {
   signal: SignalDirection;
   /** Honest statement of how much this reading can move the allocation. */
   weight: string;
+  /** The technical detail. */
   explanation: string;
+  /** The same reading in everyday language, for someone who has never traded. */
+  plain: string;
+  /** Glossary entry explaining what this kind of reading is. */
+  term: string;
 }
 
 export interface PriceProjections {

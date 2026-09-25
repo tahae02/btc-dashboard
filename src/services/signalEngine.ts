@@ -340,6 +340,13 @@ const buildReadings = (
     value: regime.regime,
     signal: directionOf(regime.score / 3, 0.3),
     weight: 'Primary',
+    term: 'regime',
+    plain:
+      regime.regime === 'BULL'
+        ? 'Bitcoin has been rising over the long term. When the long-term trend is up, the app treats price dips as chances to buy rather than reasons to sell.'
+        : regime.regime === 'BEAR'
+        ? 'Bitcoin has been falling over the long term. When the long-term trend is down, the app suggests holding less and buying more cautiously.'
+        : 'There is no clear long-term direction right now, so the app keeps its advice middle-of-the-road.',
     explanation:
       regime.components.map((c) => c.detail).join(' ') +
       ` Regime score ${regime.score >= 0 ? '+' : ''}${regime.score} of ±3. ` +
@@ -356,6 +363,13 @@ const buildReadings = (
     value: `${stretch.score >= 0 ? '+' : ''}${(stretch.score * 100).toFixed(0)}%`,
     signal: directionOf(-stretch.score),
     weight: `±${(config.stretchWeight * 100).toFixed(0)}% allocation`,
+    term: 'stretch',
+    plain:
+      stretch.score < -0.3
+        ? 'The price has dropped quickly compared with the last few weeks, so it looks cheap against its recent range. That nudges the app towards buying a bit more.'
+        : stretch.score > 0.3
+        ? 'The price has run up quickly compared with the last few weeks, so it looks pricey against its recent range. That nudges the app towards buying a bit less. It is not a sell signal.'
+        : 'The price is around the middle of its recent range, neither unusually high nor low, so this barely changes the advice.',
     explanation:
       `How far price is extended from its recent range, combining ${stretch.parts.map((p) => p.name).join(', ')} ` +
       `into one reading because they measure the same thing. ` +
@@ -373,6 +387,13 @@ const buildReadings = (
     value: `${momentum.score >= 0 ? '+' : ''}${(momentum.score * 100).toFixed(0)}%`,
     signal: directionOf(momentum.score),
     weight: `±${(config.momentumWeight * 100).toFixed(0)}% allocation`,
+    term: 'momentum',
+    plain:
+      momentum.score > 0.15
+        ? 'Recent price moves are picking up speed to the upside. That slightly supports buying.'
+        : momentum.score < -0.15
+        ? 'Recent price moves are picking up speed to the downside. That slightly tempers buying.'
+        : 'Recent price moves have no clear push either way.',
     explanation:
       `Whether the current move is accelerating or fading, from ${momentum.parts.map((p) => p.name).join(' and ')}. ` +
       'This only confirms or tempers the regime call, it never overrides it.',
@@ -386,6 +407,12 @@ const buildReadings = (
       value: String(fearGreed),
       signal: extreme ? (fearGreed <= config.sentimentExtremeFear ? 'BULLISH' : 'BEARISH') : 'NEUTRAL',
       weight: extreme ? `±${(config.sentimentWeight * 100).toFixed(0)}% allocation` : 'Inactive',
+      term: 'fearGreed',
+      plain: !extreme
+        ? `Investors' mood is ${fearGreed} out of 100: not extreme either way, so it does not change the advice.`
+        : fearGreed <= config.sentimentExtremeFear
+        ? `Investors are very fearful (${fearGreed} out of 100). Panic like this has more often been a better time to buy than to sell, so the app leans slightly towards buying.`
+        : `Investors are very greedy (${fearGreed} out of 100). Euphoria like this has more often come near peaks, so the app leans slightly against buying.`,
       explanation: extreme
         ? fearGreed <= config.sentimentExtremeFear
           ? `Extreme fear (${fearGreed}). Crowd sentiment is used contrarily, and only at extremes, so this nudges the allocation up.`
@@ -403,6 +430,15 @@ const buildReadings = (
       value: `$${ind.atr.toFixed(0)} (${ind.atrPct.toFixed(1)}%)`,
       signal: 'NEUTRAL',
       weight: 'Context only',
+      term: 'atr',
+      plain:
+        `A typical period moves about ${ind.atrPct.toFixed(1)}% (about $${ind.atr.toFixed(0)}) from high to low. ` +
+        (ind.atrPct > 4
+          ? 'That is choppier than usual, so expect bigger swings both ways.'
+          : ind.atrPct < 1.5
+          ? 'That is unusually calm. Quiet spells often end with a big move, but there is no telling which way.'
+          : 'That is about normal for Bitcoin.') +
+        ' It says nothing about direction.',
       explanation:
         `Average daily range is ${ind.atrPct.toFixed(1)}% of price. ` +
         (ind.atrPct > 4
@@ -424,6 +460,11 @@ const buildReadings = (
       value: `S: ${s ? '$' + s.toFixed(0) : 'n/a'}  R: ${r ? '$' + r.toFixed(0) : 'n/a'}`,
       signal: 'NEUTRAL',
       weight: 'Context only',
+      term: 'supportResistance',
+      plain:
+        (s ? `Recently the price stopped falling and bounced around $${s.toFixed(0)} (support)` : 'No recent low to lean on') +
+        (r ? ` and stalled on the way up around $${r.toFixed(0)} (resistance). ` : '. ') +
+        'Prices often pause near levels like these, but they break regularly.',
       explanation:
         'Recent swing pivots where price actually turned, ordered nearest first. ' +
         (s && price > 0 ? `Nearest support is ${(((price - s) / price) * 100).toFixed(1)}% below. ` : '') +

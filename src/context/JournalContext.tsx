@@ -7,13 +7,18 @@ import { configFromSettings } from '../hooks/useSignalEngine';
 import { computeIndicators } from '../services/indicators';
 import { computeSignal } from '../services/signalEngine';
 import { dropIncompleteCandle } from '../services/candles';
-import { TRADES_KEY, parseTrades, mergeTrades, sortTrades, type Trade, type SignalStamp } from '../services/journal';
+import {
+  TRADES_KEY, OPENING_KEY, parseTrades, parseOpening, parseBackup, mergeTrades, sortTrades,
+  type Trade, type SignalStamp, type OpeningPosition,
+} from '../services/journal';
 import { SIGNAL_LOG_KEY, REPLAY_WARMUP, parseSignalLog, appendToLog, type LoggedCall } from '../services/trackRecord';
 
 const DAY = 24 * 60 * 60 * 1000;
 
 interface JournalContextValue {
   trades: Trade[];
+  /** Bitcoin already held before logging began. */
+  opening: OpeningPosition | null;
   signalLog: LoggedCall[];
   isLoaded: boolean;
   /** Closed daily bars. The journal and track record always run on 1D. */
@@ -25,8 +30,9 @@ interface JournalContextValue {
   liveStamp: SignalStamp | null;
   addTrade: (t: Trade) => void;
   deleteTrade: (id: string) => void;
-  /** Merge a backup in. Returns how many trades it contained. */
-  restore: (raw: string) => number;
+  setOpening: (o: OpeningPosition | null) => void;
+  /** Merge a backup in. Returns how many trades it contained, and whether it had a starting balance. */
+  restore: (raw: string) => { trades: number; opening: boolean };
 }
 
 const JournalContext = createContext<JournalContextValue | null>(null);
@@ -45,6 +51,7 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
   const data = useData();
   const settings = useSettings();
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [opening, setOpeningState] = useState<OpeningPosition | null>(null);
   const [signalLog, setSignalLog] = useState<LoggedCall[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const logRef = useRef<LoggedCall[]>([]);
@@ -52,9 +59,10 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     (async () => {
       try {
-        const pairs = await AsyncStorage.multiGet([TRADES_KEY, SIGNAL_LOG_KEY]);
+        const pairs = await AsyncStorage.multiGet([TRADES_KEY, SIGNAL_LOG_KEY, OPENING_KEY]);
         const stored = Object.fromEntries(pairs);
         setTrades(parseTrades(stored[TRADES_KEY] ?? null));
+        setOpeningState(parseOpening(stored[OPENING_KEY] ?? null));
         logRef.current = parseSignalLog(stored[SIGNAL_LOG_KEY] ?? null);
         setSignalLog(logRef.current);
       } catch { /* start empty */ }
@@ -147,21 +155,36 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
-  const restore = useCallback((raw: string): number => {
-    const incoming = parseTrades(raw);
-    if (incoming.length) {
-      setTrades((prev) => {
-        const next = mergeTrades(prev, incoming);
-        persist(TRADES_KEY, next);
-        return next;
-      });
-    }
-    return incoming.length;
+  const setOpening = useCallback((o: OpeningPosition | null) => {
+    setOpeningState(o);
+    if (o) persist(OPENING_KEY, o);
+    else AsyncStorage.removeItem(OPENING_KEY).catch(() => {});
   }, []);
 
+  const restore = useCallback(
+    (raw: string) => {
+      const backup = parseBackup(raw);
+      if (backup.trades.length) {
+        setTrades((prev) => {
+          const next = mergeTrades(prev, backup.trades);
+          persist(TRADES_KEY, next);
+          return next;
+        });
+      }
+      // A backup's starting balance replaces the current one: it describes
+      // the same holdings, as they were when the backup was made.
+      if (backup.opening) setOpening(backup.opening);
+      return { trades: backup.trades.length, opening: backup.opening != null };
+    },
+    [setOpening]
+  );
+
   const value = useMemo<JournalContextValue>(
-    () => ({ trades, signalLog, isLoaded, closedDaily, config, liveSignal, liveStamp, addTrade, deleteTrade, restore }),
-    [trades, signalLog, isLoaded, closedDaily, config, liveSignal, liveStamp, addTrade, deleteTrade, restore]
+    () => ({
+      trades, opening, signalLog, isLoaded, closedDaily, config, liveSignal, liveStamp,
+      addTrade, deleteTrade, setOpening, restore,
+    }),
+    [trades, opening, signalLog, isLoaded, closedDaily, config, liveSignal, liveStamp, addTrade, deleteTrade, setOpening, restore]
   );
 
   return <JournalContext.Provider value={value}>{children}</JournalContext.Provider>;

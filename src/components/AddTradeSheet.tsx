@@ -5,7 +5,7 @@ import { useData } from '../context/DataContext';
 import { useJournal } from '../context/JournalContext';
 import { useSettings } from '../context/SettingsContext';
 import { fetchOHLCV } from '../services/api';
-import { parseTradeForm, priceAt, makeId, type TradeSide, type PriceSeries, type SignalStamp, type Trade } from '../services/journal';
+import { parseTradeForm, fillFromMarket, priceAt, makeId, type TradeSide, type PriceSeries, type SignalStamp, type Trade } from '../services/journal';
 import { reconstructStamp } from '../services/trackRecord';
 import { ACTION_LABEL } from '../services/signalEngine';
 import { TIMEFRAME_MS } from '../services/candles';
@@ -30,9 +30,11 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
   const [when, setWhen] = useState<When>('now');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
-  const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState<Currency>(settings.currency);
+  const [total, setTotal] = useState('');
   const [btc, setBtc] = useState('');
+  const [price, setPrice] = useState('');
+  const [fee, setFee] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [gbp, setGbp] = useState<{ hourly: OHLCVCandle[]; daily: OHLCVCandle[] } | null>(null);
@@ -45,12 +47,17 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
     setWhen('now');
     setDate(toDateInput(now));
     setTime(toTimeInput(now));
-    setAmount('');
     setCurrency(settings.currency);
+    setTotal('');
     setBtc('');
+    setPrice('');
+    setFee('');
     setNote('');
     setError(null);
   }, [visible, initialSide, settings.currency]);
+
+  // An error from a previous Save attempt is stale once anything changes.
+  useEffect(() => setError(null), [side, when, date, time, currency, total, btc, price, fee]);
 
   // Back-dated trades are priced from history: hourly for the last month,
   // daily before that. Pounds need Kraken's GBP candles, fetched on demand.
@@ -86,7 +93,11 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
   const draft = useMemo(() => {
     const now = Date.now();
     const parsed = parseTradeForm(
-      { side, date: when === 'now' ? toDateInput(now) : date, time: when === 'now' ? toTimeInput(now) : time, amount, currency, btc },
+      {
+        side, currency, total, btc, price, fee,
+        date: when === 'now' ? toDateInput(now) : date,
+        time: when === 'now' ? toTimeInput(now) : time,
+      },
       now
     );
     if (!parsed.ok) return { ok: false as const, error: parsed.error };
@@ -101,20 +112,22 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
         ? marketUsd
         : priceAt(t, gbpSeries);
     const stamp: SignalStamp | null = when === 'now' ? journal.liveStamp : reconstructStamp(journal.closedDaily, t, journal.config);
-    const btcAmount = parsed.btc ?? (marketCcy ? parsed.fiat / marketCcy : null);
-    return { ok: true as const, t, fiat: parsed.fiat, btcAmount, marketUsd, marketCcy, stamp, btcGiven: parsed.btc != null };
-  }, [side, when, date, time, amount, currency, btc, data.price, usdSeries, gbpSeries, journal.liveStamp, journal.closedDaily, journal.config]);
+    // Only a total entered: the BTC comes from the market price at the time.
+    const figures = fillFromMarket(side, parsed, marketCcy);
+    return { ok: true as const, t, figures, marketUsd, stamp, fromMarket: parsed.btc == null };
+  }, [side, when, date, time, currency, total, btc, price, fee, data.price, usdSeries, gbpSeries, journal.liveStamp, journal.closedDaily, journal.config]);
 
   const save = () => {
     if (!draft.ok) {
       setError(draft.error);
       return;
     }
-    if (draft.btcAmount == null || !(draft.btcAmount > 0)) {
+    const f = draft.figures;
+    if (!f || f.btc == null) {
       setError(
         when === 'now'
-          ? 'No live price yet. Enter the BTC amount, or wait for the price to load.'
-          : 'Could not find the market price for that time. Enter the BTC amount instead.'
+          ? 'No live price yet. Enter the BTC amount or the price per BTC, or wait for the price to load.'
+          : 'Could not find the market price for that time. Enter the BTC amount or the price per BTC instead.'
       );
       return;
     }
@@ -122,9 +135,11 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
       id: makeId(),
       side,
       time: draft.t,
-      fiat: draft.fiat,
+      fiat: f.fiat,
       currency,
-      btc: draft.btcAmount,
+      btc: f.btc,
+      unitPrice: f.unitPrice,
+      fee: f.fee,
       marketPriceUsd: draft.marketUsd,
       signal: draft.stamp,
       note: note.trim(),
@@ -134,8 +149,12 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
     onClose();
   };
 
-  const effectivePrice = draft.ok && draft.btcAmount ? draft.fiat / draft.btcAmount : null;
   const sym = currencySymbol(currency);
+  const figures = draft.ok ? draft.figures : null;
+  // Say what is wrong as soon as there is something to check, not only on Save.
+  const typedAnything = [total, btc, price].some((v) => v.trim() !== '');
+  const liveError = !draft.ok && typedAnything ? draft.error : null;
+  const paid = side === 'buy' ? 'paid' : 'received';
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -188,17 +207,8 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
               </View>
             )}
 
-            <Text style={styles.label}>{side === 'buy' ? 'Amount spent, fees included' : 'Amount received, after fees'}</Text>
-            <View style={styles.row}>
-              <TextInput
-                style={[styles.input, styles.flex]}
-                value={amount}
-                onChangeText={setAmount}
-                placeholder={`${sym}0`}
-                keyboardType="decimal-pad"
-                placeholderTextColor={Colors.textTertiary}
-                accessibilityLabel="Amount"
-              />
+            <View style={[styles.row, styles.ccyRow]}>
+              <Text style={[styles.label, styles.flex, { marginTop: 0 }]}>Currency</Text>
               <SegmentedButtons
                 value={currency}
                 onValueChange={(v) => setCurrency(v as Currency)}
@@ -210,19 +220,68 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
               />
             </View>
 
-            <Text style={styles.label}>{side === 'buy' ? 'BTC received (optional)' : 'BTC sold'}</Text>
-            <TextInput
-              style={styles.input}
-              value={btc}
-              onChangeText={setBtc}
-              placeholder="Blank: worked out from the market price"
-              keyboardType="decimal-pad"
-              placeholderTextColor={Colors.textTertiary}
-              accessibilityLabel="BTC amount"
-            />
             <Text style={styles.hint}>
-              Your exchange shows the exact figure. Entering it makes your average cost exact, fees included.
+              Copy these from the order details (on Coinbase, tap the transaction). Any two of total, BTC and price
+              are enough: the app works out the rest and checks the figures add up.
             </Text>
+
+            <View style={styles.row}>
+              <View style={styles.flex}>
+                <Text style={styles.label}>Total {paid}, fee included</Text>
+                <TextInput
+                  style={styles.input}
+                  value={total}
+                  onChangeText={setTotal}
+                  placeholder={`${sym}0.00`}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={Colors.textTertiary}
+                  accessibilityLabel={`Total ${paid}`}
+                />
+              </View>
+              <View style={styles.feeCol}>
+                <Text style={styles.label}>Fee</Text>
+                <TextInput
+                  style={styles.input}
+                  value={fee}
+                  onChangeText={setFee}
+                  placeholder={`${sym}0.00`}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={Colors.textTertiary}
+                  accessibilityLabel="Fee"
+                />
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={styles.flex}>
+                <Text style={styles.label}>BTC {side === 'buy' ? 'bought' : 'sold'}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={btc}
+                  onChangeText={setBtc}
+                  placeholder="0.00000000"
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={Colors.textTertiary}
+                  accessibilityLabel="BTC amount"
+                />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.label}>Price per BTC</Text>
+                <TextInput
+                  style={styles.input}
+                  value={price}
+                  onChangeText={setPrice}
+                  placeholder={`${sym}0`}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={Colors.textTertiary}
+                  accessibilityLabel="Price per BTC"
+                />
+              </View>
+            </View>
+            <Text style={styles.hint}>
+              Only have the total? Leave BTC and price blank and they are worked out from the market price at that time.
+            </Text>
+            {liveError && <Text style={styles.error}>{liveError}</Text>}
 
             <Text style={styles.label}>Note (optional)</Text>
             <TextInput
@@ -237,12 +296,17 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
             {/* What will be saved, so nothing is a surprise afterwards. */}
             {draft.ok && (
               <View style={styles.preview}>
-                {draft.btcAmount != null && (
-                  <Text style={styles.previewText}>
-                    {formatBtc(draft.btcAmount)} BTC
-                    {effectivePrice ? ` at ${formatMoney(effectivePrice, currency)} per BTC` : ''}
-                    {!draft.btcGiven ? ' (market price)' : ''}
-                  </Text>
+                {figures?.btc != null && (
+                  <>
+                    <Text style={styles.previewText}>
+                      {formatBtc(figures.btc)} BTC for {formatMoney(figures.fiat, currency)}
+                    </Text>
+                    <Text style={styles.previewLabel}>
+                      {figures.unitPrice != null ? `Price ${formatMoney(figures.unitPrice, currency)} per BTC` : ''}
+                      {draft.fromMarket ? ' (market price at the time)' : ''}
+                      {figures.fee > 0 ? ` · fee ${formatMoney(figures.fee, currency)}` : ''}
+                    </Text>
+                  </>
                 )}
                 {draft.stamp ? (
                   <View>
@@ -265,7 +329,7 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
               </View>
             )}
 
-            {error && <Text style={styles.error}>{error}</Text>}
+            {error && !liveError && <Text style={styles.error}>{error}</Text>}
 
             <Pressable style={styles.save} onPress={save} accessibilityRole="button">
               <Text style={styles.saveText}>Save {side}</Text>
@@ -294,6 +358,8 @@ const styles = StyleSheet.create({
   timeInput: { width: 90 },
   // Paper's segmented buttons have a minimum width each; two need about 150.
   ccy: { width: 150 },
+  ccyRow: { marginTop: Spacing.md },
+  feeCol: { width: 110 },
   segBtn: { borderColor: Colors.cardBorder },
   input: {
     ...Typography.monoData, backgroundColor: Colors.elevated, borderRadius: BorderRadius.sm,

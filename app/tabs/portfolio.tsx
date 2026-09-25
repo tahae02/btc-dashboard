@@ -7,8 +7,11 @@ import { useSettings } from '../../src/context/SettingsContext';
 import { useJournal } from '../../src/context/JournalContext';
 import { GlassCard } from '../../src/components/GlassCard';
 import { AddTradeSheet } from '../../src/components/AddTradeSheet';
+import { OpeningSheet } from '../../src/components/OpeningSheet';
+import { InfoButton } from '../../src/components/InfoButton';
+import { useExplain } from '../../src/context/ExplainContext';
 import {
-  summariseHoldings, tradeOutcomes, groupBuysBySignal, serialiseBackup, tradesToCsv,
+  summariseHoldings, tradeOutcomes, groupBuysBySignal, serialiseBackup, tradesToCsv, isCoveredByOpening,
   type Trade, type TradeSide, type PriceSeries,
 } from '../../src/services/journal';
 import { ACTION_LABEL } from '../../src/services/signalEngine';
@@ -27,7 +30,9 @@ export default function PortfolioScreen() {
   const data = useData();
   const settings = useSettings();
   const journal = useJournal();
+  const { explain } = useExplain();
   const [sheet, setSheet] = useState<TradeSide | null>(null);
+  const [openingOpen, setOpeningOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreText, setRestoreText] = useState('');
 
@@ -50,8 +55,8 @@ export default function PortfolioScreen() {
   const liveUsd = data.price?.price ?? 0;
   const liveGbp = data.price?.price_gbp ?? 0;
   const summary = useMemo(
-    () => summariseHoldings(journal.trades, currency, { usd: liveUsd, gbp: liveGbp }),
-    [journal.trades, currency, liveUsd, liveGbp]
+    () => summariseHoldings(journal.trades, currency, { usd: liveUsd, gbp: liveGbp }, journal.opening),
+    [journal.trades, currency, liveUsd, liveGbp, journal.opening]
   );
   const groups = useMemo(() => groupBuysBySignal(journal.trades, series), [journal.trades, series]);
   const newestFirst = useMemo(() => [...journal.trades].reverse(), [journal.trades]);
@@ -64,24 +69,29 @@ export default function PortfolioScreen() {
   };
 
   const exportAs = async (kind: 'backup' | 'csv') => {
-    const message = kind === 'backup' ? serialiseBackup(journal.trades) : tradesToCsv(journal.trades);
+    const message = kind === 'backup' ? serialiseBackup(journal.trades, journal.opening) : tradesToCsv(journal.trades);
     try {
       await Share.share({ message, title: kind === 'backup' ? 'BTC Analyst backup' : 'BTC Analyst trades (CSV)' });
     } catch { /* user dismissed the share sheet */ }
   };
 
   const doRestore = () => {
-    const n = journal.restore(restoreText);
-    if (n === 0) {
+    const r = journal.restore(restoreText);
+    if (r.trades === 0 && !r.opening) {
       Alert.alert('Nothing to restore', 'That text does not contain any trades. Paste the whole backup, from the first { to the last }.');
       return;
     }
-    Alert.alert('Restored', `${n} trade${n === 1 ? '' : 's'} merged in. Trades already here were kept.`);
+    Alert.alert(
+      'Restored',
+      `${r.trades} trade${r.trades === 1 ? '' : 's'} merged in${r.opening ? ', plus your starting balance' : ''}. Trades already here were kept.`
+    );
     setRestoreText('');
     setRestoreOpen(false);
   };
 
   const hasPrice = liveUsd > 0;
+  const hasAnything = journal.trades.length > 0 || journal.opening != null;
+  const otherCcy = currency === 'GBP' ? 'USD' : 'GBP';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -89,7 +99,7 @@ export default function PortfolioScreen() {
         <Text style={styles.headerTitle}>Portfolio</Text>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {journal.trades.length === 0 ? (
+        {!hasAnything ? (
           <GlassCard>
             <Text style={styles.sectionTitle}>Track what you buy</Text>
             <Text style={styles.body}>
@@ -98,8 +108,13 @@ export default function PortfolioScreen() {
               signal have actually turned out.
             </Text>
             <Text style={[styles.body, { marginTop: Spacing.sm }]}>
-              Your trades stay on this phone. Nothing is sent anywhere.
+              Already own some Bitcoin? Start by adding what you hold and what you have put in, then log new trades
+              as you make them. Your trades stay on this phone. Nothing is sent anywhere.
             </Text>
+            <Pressable style={[styles.actionBtn, styles.buyBtn, { marginTop: Spacing.lg }]} onPress={() => setOpeningOpen(true)} accessibilityRole="button">
+              <Ionicons name="wallet-outline" size={18} color="#000" />
+              <Text style={styles.actionTextDark}>Add Bitcoin I already own</Text>
+            </Pressable>
           </GlassCard>
         ) : (
           <GlassCard>
@@ -118,8 +133,14 @@ export default function PortfolioScreen() {
                 <Text style={styles.statValue}>{formatMoney(summary.costBasis, currency)}</Text>
               </View>
               <View style={styles.stat}>
-                <Text style={styles.statLabel}>Average cost</Text>
+                <View style={styles.labelRow}>
+                  <Text style={styles.statLabel}>Average cost</Text>
+                  <InfoButton term="averageCost" />
+                </View>
                 <Text style={styles.statValue}>{summary.avgCost != null ? formatMoney(summary.avgCost, currency) : '--'}</Text>
+                {summary.avgCostIn[otherCcy] != null && (
+                  <Text style={styles.statSub}>{formatMoney(summary.avgCostIn[otherCcy]!, otherCcy)} at today's rate</Text>
+                )}
               </View>
             </View>
             {summary.sells > 0 && (
@@ -134,9 +155,23 @@ export default function PortfolioScreen() {
                 </View>
               </View>
             )}
+            {journal.opening ? (
+              <Pressable onPress={() => setOpeningOpen(true)} style={styles.openingRow} accessibilityRole="button">
+                <Text style={styles.openingText}>
+                  Includes your starting balance: {formatBtc(journal.opening.btc)} BTC for{' '}
+                  {formatMoney(journal.opening.invested, journal.opening.currency)}
+                </Text>
+                <Text style={styles.link}>Edit</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => setOpeningOpen(true)} style={styles.openingRow} accessibilityRole="button">
+                <Text style={styles.openingText}>Own Bitcoin from before you started logging?</Text>
+                <Text style={styles.link}>Add it</Text>
+              </Pressable>
+            )}
             {summary.converted && (
               <Text style={styles.note}>
-                Some trades are in {currency === 'GBP' ? 'dollars' : 'pounds'} and are converted at today's rate, so these totals are approximate.
+                Some amounts are in {currency === 'GBP' ? 'dollars' : 'pounds'} and are converted at today's rate, so these totals are approximate.
               </Text>
             )}
             {summary.oversold && (
@@ -191,7 +226,7 @@ export default function PortfolioScreen() {
 
         {newestFirst.map((t) => {
           const outcomes = tradeOutcomes(t, series);
-          const paid = t.fiat / t.btc;
+          const covered = isCoveredByOpening(t, journal.opening);
           return (
             <GlassCard key={t.id} style={styles.tradeCard}>
               <View style={styles.tradeTop}>
@@ -209,7 +244,13 @@ export default function PortfolioScreen() {
               <Text style={styles.tradeMain}>
                 {formatMoney(t.fiat, t.currency)} {t.side === 'buy' ? '→' : '←'} {formatBtc(t.btc)} BTC
               </Text>
-              <Text style={styles.tradeSub}>at {formatMoney(paid, t.currency)} per BTC</Text>
+              <Text style={styles.tradeSub}>
+                at {formatMoney(t.unitPrice ?? t.fiat / t.btc, t.currency)} per BTC
+                {t.fee > 0 ? ` · fee ${formatMoney(t.fee, t.currency)}` : ''}
+              </Text>
+              {covered && (
+                <Text style={styles.coveredText}>Already counted in your starting balance, so not added again.</Text>
+              )}
 
               {t.signal ? (
                 <View style={styles.stampRow}>
@@ -225,7 +266,7 @@ export default function PortfolioScreen() {
               <View style={styles.outcomes}>
                 {outcomes.map((o) => (
                   <View key={o.key} style={styles.outcome}>
-                    <Text style={styles.outcomeLabel}>{o.key}</Text>
+                    <Text style={styles.outcomeLabel}>{o.key} later</Text>
                     {o.change != null ? (
                       <Text style={[styles.outcomeValue, { color: moveColour(o.change, o.favourable) }]}>{formatPct(o.change)}</Text>
                     ) : (
@@ -240,9 +281,10 @@ export default function PortfolioScreen() {
         })}
 
         {journal.trades.length > 0 && (
-          <Text style={styles.footnote}>
+          <Text style={styles.footnote} onPress={() => explain('tradeOutcomes')}>
             Moves are BTC's market price after each trade: green when it went your way. Over a day or a week, price
-            moves are mostly noise, so one red number says little about the signal.
+            moves are mostly noise, so one red number says little about the signal.{' '}
+            <Text style={styles.inlineLink}>What do these mean?</Text>
           </Text>
         )}
 
@@ -252,11 +294,11 @@ export default function PortfolioScreen() {
             Trades live only on this phone and are lost if the app is uninstalled. Updating the app keeps them.
           </Text>
           <View style={styles.backupRow}>
-            <Pressable style={styles.linkBtn} onPress={() => exportAs('backup')} disabled={!journal.trades.length}>
-              <Text style={[styles.link, !journal.trades.length && styles.disabled]}>Export backup</Text>
+            <Pressable style={styles.linkBtn} onPress={() => exportAs('backup')} disabled={!hasAnything}>
+              <Text style={[styles.link, !hasAnything && styles.disabled]}>Export backup</Text>
             </Pressable>
-            <Pressable style={styles.linkBtn} onPress={() => exportAs('csv')} disabled={!journal.trades.length}>
-              <Text style={[styles.link, !journal.trades.length && styles.disabled]}>Export CSV</Text>
+            <Pressable style={styles.linkBtn} onPress={() => exportAs('csv')} disabled={!hasAnything}>
+              <Text style={[styles.link, !hasAnything && styles.disabled]}>Export CSV</Text>
             </Pressable>
             <Pressable style={styles.linkBtn} onPress={() => setRestoreOpen((o) => !o)}>
               <Text style={styles.link}>Restore</Text>
@@ -283,6 +325,7 @@ export default function PortfolioScreen() {
       </ScrollView>
 
       <AddTradeSheet visible={sheet != null} initialSide={sheet ?? 'buy'} onClose={() => setSheet(null)} />
+      <OpeningSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -303,6 +346,15 @@ const styles = StyleSheet.create({
   stat: { flex: 1 },
   statLabel: { ...Typography.caption, color: Colors.textTertiary },
   statValue: { ...Typography.monoData, marginTop: 2 },
+  statSub: { ...Typography.caption, color: Colors.textTertiary, fontSize: 11, marginTop: 2 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  openingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.lg, paddingTop: Spacing.md,
+    borderTopWidth: 1, borderTopColor: Colors.cardBorder,
+  },
+  openingText: { ...Typography.caption, flex: 1, lineHeight: 17 },
+  coveredText: { ...Typography.caption, color: Colors.neutral, marginTop: 4, fontSize: 11 },
+  inlineLink: { color: Colors.accent },
   note: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: Spacing.md },
   actions: { flexDirection: 'row', gap: Spacing.md },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: BorderRadius.sm },
