@@ -7,6 +7,7 @@ import { useSettings } from '../../src/context/SettingsContext';
 import { useIndicators } from '../../src/hooks/useIndicators';
 import { GlassCard } from '../../src/components/GlassCard';
 import { ErrorBoundary } from '../../src/components/ErrorBoundary';
+import { InfoButton } from '../../src/components/InfoButton';
 import { buildChartWindow, visibleCandleCount, formatPriceShort } from '../../src/services/chartWindow';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/constants/theme';
 import type { Timeframe } from '../../src/types';
@@ -33,6 +34,17 @@ const VISIBLE_CANDLES = visibleCandleCount(screenWidth, CANDLE_SPACING, RESERVED
  * a set of checkboxes that promise more than the chart can render.
  */
 type OverlayKey = 'none' | 'ema9' | 'ema21' | 'sma50' | 'sma200' | 'bbUpper' | 'bbLower';
+
+/** One plain-English line per overlay, shown under the chips when it is selected. */
+const OVERLAY_PLAIN: Record<OverlayKey, string> = {
+  none: 'Pick a line to draw over the candles. Tap the (i) for what they mean.',
+  ema9: 'EMA 9: the average of the last 9 candles, leaning on the most recent. A fast, short-term trend line.',
+  ema21: 'EMA 21: the average of the last 21 candles, leaning on the most recent. A short-term trend line, steadier than EMA 9.',
+  sma50: 'SMA 50: the plain average of the last 50 candles. The medium-term trend; price above it is generally a good sign.',
+  sma200: 'SMA 200: the plain average of the last 200 candles. The most watched long-term trend line.',
+  bbUpper: 'Upper Bollinger Band: the top of the range the price usually stays within. Near it, the price is high for its recent range.',
+  bbLower: 'Lower Bollinger Band: the bottom of the usual range. Near it, the price is low for its recent range.',
+};
 
 const OVERLAYS: { key: OverlayKey; label: string; color: string }[] = [
   { key: 'none', label: 'None', color: Colors.textTertiary },
@@ -94,12 +106,14 @@ export default function ChartScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={data?.isLoading ?? false} onRefresh={() => data?.refresh?.()} tintColor={Colors.accent} />}
       >
-        <View style={styles.tfRow}>
+        <View style={[styles.tfRow, { alignItems: 'center' }]}>
           {TIMEFRAMES.map((tf) => (
             <Pressable key={tf} onPress={() => loadTf(tf)} style={[styles.tfPill, activeTimeframe === tf && styles.tfPillActive]}>
               <Text style={[styles.tfText, activeTimeframe === tf && styles.tfTextActive]}>{tf}</Text>
             </Pressable>
           ))}
+          <View style={{ flex: 1 }} />
+          <InfoButton term="candles" size={20} />
         </View>
 
         {/* The chart timeframe is independent of the signal timeframe, and
@@ -146,7 +160,10 @@ export default function ChartScreen() {
           </Text>
         )}
 
-        <Text style={styles.sectionLabel}>Overlay</Text>
+        <View style={styles.labelRow}>
+          <Text style={styles.sectionLabel}>Overlay</Text>
+          <InfoButton term={overlay === 'bbUpper' || overlay === 'bbLower' ? 'bollinger' : 'movingAverages'} />
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.overlayRow}>
           {OVERLAYS.map((o) => (
             <Pressable
@@ -161,6 +178,7 @@ export default function ChartScreen() {
             </Pressable>
           ))}
         </ScrollView>
+        <Text style={styles.plainNote}>{OVERLAY_PLAIN[overlay]}</Text>
 
         {candles.length > 0 && (
           <GlassCard>
@@ -185,7 +203,10 @@ export default function ChartScreen() {
 
         {rsiValues.length > 0 && (
           <GlassCard>
-            <Text style={styles.sectionLabel}>RSI (14): {indicators?.rsi?.value?.toFixed(1) ?? '--'}</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.sectionLabel}>RSI (14): {indicators?.rsi?.value?.toFixed(1) ?? '--'}</Text>
+              <InfoButton term="rsi" />
+            </View>
             <View style={styles.miniChart}>
               <View style={styles.miniChartBg}>
                 {/* Overbought band sits at the top, oversold at the bottom. */}
@@ -209,12 +230,23 @@ export default function ChartScreen() {
                 ))}
               </View>
             </View>
+            <Text style={styles.plainNote}>
+              {(() => {
+                const v = indicators?.rsi?.value;
+                const now =
+                  v == null ? '' : v >= 70 ? ' Right now it has risen fast.' : v <= 30 ? ' Right now it has fallen fast.' : ' Right now it is in the normal middle zone.';
+                return `How fast the price has been rising or falling. Top shaded band (above 70): risen fast. Bottom band (below 30): fallen fast.${now}`;
+              })()}
+            </Text>
           </GlassCard>
         )}
 
         {macdHist.length > 0 && (
           <GlassCard>
-            <Text style={styles.sectionLabel}>MACD histogram</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.sectionLabel}>MACD histogram</Text>
+              <InfoButton term="macd" />
+            </View>
             <View style={styles.miniChart}>
               <View style={styles.miniChartBg}>
                 <View style={[styles.rsiLine, { bottom: '50%' }]} />
@@ -240,6 +272,15 @@ export default function ChartScreen() {
                 })()}
               </View>
             </View>
+            <Text style={styles.plainNote}>
+              {(() => {
+                const last = macdHist[macdHist.length - 1] ?? 0;
+                const prev = macdHist[macdHist.length - 2] ?? 0;
+                const dir = last >= 0 ? 'an upward' : 'a downward';
+                const trend = Math.abs(last) >= Math.abs(prev) ? 'strengthening' : 'fading';
+                return `Green bars: the price has an upward push. Red bars: a downward push. Taller bars mean a stronger push. Right now: ${dir} push that is ${trend}.`;
+              })()}
+            </Text>
           </GlassCard>
         )}
 
@@ -269,6 +310,8 @@ const styles = StyleSheet.create({
   overlayLabel: { ...Typography.caption, color: Colors.textSecondary },
   sectionLabel: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   ovVal: { ...Typography.monoData, marginTop: 6 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  plainNote: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, marginTop: Spacing.sm },
   miniChart: { height: 80, marginTop: Spacing.sm },
   miniChartBg: { flex: 1, position: 'relative', backgroundColor: Colors.elevated, borderRadius: 4, overflow: 'hidden' },
   rsiZone: { position: 'absolute', left: 0, right: 0, height: '30%' },

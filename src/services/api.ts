@@ -1,6 +1,7 @@
-import type { OHLCVCandle, FearGreedData, OnChainData, PriceData, Timeframe } from '../types';
+import type { OHLCVCandle, FearGreedData, FearGreedEntry, OnChainData, PriceData, Timeframe } from '../types';
 import { estimateCirculatingSupply } from './supply';
 import { ENDPOINTS } from './endpoints';
+import { fetchJSON, FetchError, describeFetchError, type FetchOptions } from './http';
 
 import { Platform } from 'react-native';
 
@@ -27,58 +28,13 @@ const firstResult = <T>(result: Record<string, T> | undefined): T | undefined =>
 // fetchOnChainData) and run only in the native app, where CORS does not apply.
 export const IS_WEB = Platform.OS === 'web';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// Short-lived cache + in-flight dedup so duplicate requests for the same URL
-// (e.g. the Dashboard refresh and the Chart screen both wanting 1D OHLC) reuse
-// a single network call instead of hitting the API twice.
-const CACHE_TTL = 20000;
-const cache = new Map<string, { ts: number; data: any }>();
-const inflight = new Map<string, Promise<any>>();
-
-const doFetch = async <T>(url: string, timeout: number): Promise<T> => {
-  let lastErr: unknown = new Error('request failed');
-  // Up to 3 attempts with backoff, to ride out a transient 429 or blip.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } });
-      if (res.status === 429) {
-        lastErr = new Error('HTTP 429');
-        await sleep(1200 * (attempt + 1));
-        continue;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return (await res.json()) as T;
-    } catch (e) {
-      lastErr = e;
-      if (attempt < 2) await sleep(700 * (attempt + 1));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw lastErr;
-};
-
-const fetchJSON = async <T>(url: string, timeout = 15000): Promise<T> => {
-  const cached = cache.get(url);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data as T;
-
-  const existing = inflight.get(url);
-  if (existing) return existing as Promise<T>;
-
-  const p = doFetch<T>(url, timeout)
-    .then((data) => {
-      cache.set(url, { ts: Date.now(), data });
-      return data;
-    })
-    .finally(() => {
-      inflight.delete(url);
-    });
-  inflight.set(url, p);
-  return p;
-};
+// Price and candles are what the app is for, so they get the most patience.
+// The rest are extras: they give up sooner and are not retried as hard, so a
+// slow or blocking provider costs seconds rather than most of a minute. None
+// of them hold up the screen either way, since results are shown as they
+// arrive (see useMarketData).
+const ESSENTIAL: FetchOptions = { timeout: 10000, attempts: 3 };
+const EXTRA: FetchOptions = { timeout: 8000, attempts: 2 };
 
 // Pick the Kraken result entry whose pair key contains the given quote currency.
 const resultForQuote = (result: Record<string, any> | undefined, quote: string): Record<string, any> | undefined => {
@@ -90,7 +46,7 @@ const resultForQuote = (result: Record<string, any> | undefined, quote: string):
 export const fetchPriceData = async (): Promise<PriceData> => {
   // Single Kraken ticker call for both USD and GBP pairs (no separate FX API).
   // Per pair: c=last, o=open(24h ago), h/l=[today,24h], v=vol(BTC), p=vwap.
-  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ticker);
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ticker, ESSENTIAL);
   const usd = resultForQuote(data?.result, 'USD') ?? {};
   const gbp = resultForQuote(data?.result, 'GBP') ?? {};
   const price = Number(usd?.c?.[0] ?? 0);
@@ -114,11 +70,12 @@ export const fetchPriceData = async (): Promise<PriceData> => {
   };
 };
 
-export const fetchOHLCV = async (timeframe: Timeframe, _currency: string = 'usd'): Promise<OHLCVCandle[]> => {
-  // Kraken OHLC (XBTUSD). Charts are always denominated in USD; the GBP toggle
-  // only affects the headline price display, not the candle series.
+export const fetchOHLCV = async (timeframe: Timeframe, quote: 'USD' | 'GBP' = 'USD'): Promise<OHLCVCandle[]> => {
+  // Kraken OHLC. Charts and signals are always denominated in USD; the GBP
+  // toggle only affects the headline price display. GBP candles are fetched
+  // only to price back-dated trades logged in pounds.
   // Row shape: [time(s), open, high, low, close, vwap, volume, count].
-  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ohlc(timeframe));
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ohlc(timeframe, quote), quote === 'USD' ? ESSENTIAL : EXTRA);
   const rows = firstResult<any[][]>(data?.result) ?? [];
   return rows.map((c) => ({
     time: Number(c?.[0] ?? 0) * 1000,
@@ -132,14 +89,17 @@ export const fetchOHLCV = async (timeframe: Timeframe, _currency: string = 'usd'
 
 export const fetchBTCDominance = async (): Promise<number> => {
   // CoinPaprika global: BTC dominance %. CORS-enabled with generous free limits.
-  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.dominance);
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.dominance, EXTRA);
   return Number(data?.bitcoin_dominance_percentage ?? 0);
 };
 
 export const fetchFearGreed = async (): Promise<FearGreedData> => {
-  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.fearGreed);
-  const entries = data?.data ?? [];
-  const current = entries?.[0] ?? { value: '50', value_classification: 'Neutral', timestamp: '0' };
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.fearGreed, EXTRA);
+  const entries = Array.isArray(data?.data) ? data.data : [];
+  // No reading is a failure, not a neutral 50: a made-up value would feed
+  // straight into the signal as if it were real.
+  if (!entries.length) throw new FetchError('bad response (no readings)');
+  const current = entries[0];
   return {
     current: {
       value: Number(current?.value ?? 50),
@@ -154,6 +114,19 @@ export const fetchFearGreed = async (): Promise<FearGreedData> => {
   };
 };
 
+/** Every Fear & Greed reading on record, newest first. */
+export const fetchFearGreedHistory = async (): Promise<FearGreedEntry[]> => {
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.fearGreedHistory, EXTRA);
+  const entries = Array.isArray(data?.data) ? data.data : [];
+  return entries
+    .map((e: any) => ({
+      value: Number(e?.value),
+      value_classification: String(e?.value_classification ?? ''),
+      timestamp: String(e?.timestamp ?? ''),
+    }))
+    .filter((e: FearGreedEntry) => Number.isFinite(e.value) && Number(e.timestamp) > 0);
+};
+
 export const fetchOnChainData = async (): Promise<OnChainData> => {
   // mempool.space does not send CORS headers, so browser fetches always fail.
   // Skip them on web (the On-Chain screen shows a "mobile app" notice) and run
@@ -162,10 +135,10 @@ export const fetchOnChainData = async (): Promise<OnChainData> => {
     return { hashRate: 0, difficulty: null as any, mempool: null as any, fees: null as any };
   }
   const results = await Promise.allSettled([
-    fetchJSON<Record<string, any>>(ENDPOINTS.hashrate),
-    fetchJSON<Record<string, any>>(ENDPOINTS.difficulty),
-    fetchJSON<Record<string, any>>(ENDPOINTS.mempool),
-    fetchJSON<Record<string, any>>(ENDPOINTS.fees),
+    fetchJSON<Record<string, any>>(ENDPOINTS.hashrate, EXTRA),
+    fetchJSON<Record<string, any>>(ENDPOINTS.difficulty, EXTRA),
+    fetchJSON<Record<string, any>>(ENDPOINTS.mempool, EXTRA),
+    fetchJSON<Record<string, any>>(ENDPOINTS.fees, EXTRA),
   ]);
 
   // Partial failure is fine (the screen shows what it has), but if every
@@ -173,7 +146,7 @@ export const fetchOnChainData = async (): Promise<OnChainData> => {
   // of quietly rendering a screen of blanks.
   if (results.every((r) => r.status === 'rejected')) {
     const first = results[0] as PromiseRejectedResult;
-    throw new Error(`mempool.space unreachable: ${String(first.reason?.message ?? first.reason)}`);
+    throw new FetchError(describeFetchError(first.reason));
   }
 
   const hashData = results[0].status === 'fulfilled' ? results[0].value : null;

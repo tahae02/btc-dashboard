@@ -51,6 +51,27 @@ Volatility (ATR) and support/resistance are shown as **context** and explicitly 
 
 ---
 
+## Portfolio and track record
+
+**Portfolio tab.** Already own Bitcoin? Add a *starting balance*: the total you have put in and the BTC you hold now. Your average cost is worked out in pounds and, at today's rate, dollars. Trades dated before the starting balance are treated as already inside it, so back-logging an old order never counts it twice.
+
+Holdings are always shown in both pounds and dollars, whatever the currency setting: value and profit side by side, with cost of holdings and average cost in pounds and dollars underneath. The currency you did not buy in is converted at today's exchange rate, and the screen says so.
+
+Tap any trade for everything recorded at that moment: the order (total, fee, BTC, exchange price, price including fee), the market (BTC in pounds and dollars, Fear & Greed with its label, RSI, volatility, the 200-day average and how far the price was from it), what the app said (advice, regime, conviction, target allocation, DCA multiplier, stretch, momentum, and whether it was recorded live or replayed), and what the price did 1, 7, 30 and 90 days later. The CSV export carries all of it.
+
+Then log each buy or sell with the figures from your exchange's order details: total, BTC, price per BTC and fee. Any two of total, BTC and price are enough; the third is worked out, and if you enter all three they are checked against each other so a typo cannot skew your average cost. Enter only the total and BTC is worked out from the market price at that moment, in pounds or dollars. Each trade is stamped with what the signal was saying at the time, frozen so that later engine changes never rewrite what you acted on. Back-dated trades get the signal replayed from the daily history for that day. The tab shows holdings, average cost, P&L (average-cost method), how the price moved 1, 7, 30 and 90 days after each trade, and your buys grouped by the signal they were made on. Trades stay on the phone; export a backup or CSV from the bottom of the tab.
+
+**Track record (Signals tab).** Two records, scored the same way:
+
+- *Replay.* The engine re-run on each of the ~500 scorable days in the ~720 days of history the app downloads, seeing only prices up to that day. For each tier: the average BTC move 7, 30 and 90 days later, against an average day. It also checks whether scaling weekly buys by the DCA multiplier bought more cheaply than a flat amount, and how often price actually landed inside the 24h and 7d ranges, which claim about two thirds.
+- *Recorded on this phone.* The signal the app actually showed you, saved once a day as you use it. This is the honest out-of-sample record, and it fills slowly.
+
+The engine does **not** retune itself from either record. Two years of daily data holds fewer than two dozen independent months, and a month's BTC move is routinely ±20%, so a self-tuning engine would fit the noise and look like it was improving while getting worse. Use the record to spot a tier that consistently underperforms, then test a change with `yarn backtest --split` on a decade of real data before keeping it.
+
+**Plain English.** Every indicator, number and label has an (i) next to it that explains what it is and what it tends to mean, for someone who has never traded. The Home tab has an *In plain English* summary of the current market and the advice, built only from numbers the engine produced. Each reading on the Signals tab leads with a plain-English line, with the technical detail one tap away. The book icon on Home (or Settings, *Jargon explained*) opens every term in one place.
+
+---
+
 ## Running the backtest
 
 This is the part that tells you whether any of it works.
@@ -191,10 +212,12 @@ yarn probe
 
 Checks every external source the app uses, with the same URLs, and says for each one whether it responded and whether the response holds the data the app reads. Run it on the same network as your phone. It tells apart "the provider is down", "it's rate limiting or blocking you" and "it changed its response format", which the app on its own cannot.
 
+The app's banner now gives the reason too, e.g. `(HTTP 403)`, `(timed out after 8s)` or `(could not connect)`. The probe also runs a second pass sending the same User-Agent as the Android app (`okhttp`), because some Cloudflare-fronted APIs let Node through but block that, so a source can pass the first pass and still fail on a phone.
+
 ## Testing
 
 ```bash
-yarn test          # 102 tests, no install required
+yarn test          # 190 tests, no install required
 yarn test:watch
 yarn typecheck
 ```
@@ -206,6 +229,7 @@ Tests run on Node's built-in runner, so they need no dependencies at all. They c
 - signal engine behaviour (regime dominance, all tiers reachable, conviction is real information)
 - the no-lookahead guarantee in the backtester
 - metrics (IRR, drawdown, contributions not counted as performance)
+- the trade journal (average-cost P&L, form parsing, outcomes) and the track record, including that replayed calls ignore the future
 
 There are no component tests, and therefore no jest. Adding them later means adding `jest-expo` and `@testing-library/react-native` back.
 
@@ -214,10 +238,10 @@ There are no component tests, and therefore no jest. Adding them later means add
 ## Project layout
 
 ```
-src/services/      pure logic, no React — indicators, signal engine, candles, supply, settings
+src/services/      pure logic, no React: indicators, signal engine, candles, supply, settings, journal, track record
 src/hooks/         thin React wrappers over the above
-src/context/       settings + market data providers
-app/tabs/          the four screens
+src/context/       settings, market data and journal providers
+app/tabs/          the six screens
 backtest/          harness, strategies, metrics, data loading, CLI
 __tests__/         logic tests (node:test)
 ```

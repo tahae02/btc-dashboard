@@ -72,8 +72,18 @@ export interface MarketData {
   onChain: OnChainData;
   btcDominance: number | null;
   isLoading: boolean;
+  /**
+   * True once a live price has arrived this session. Until then, what is on
+   * screen may be the saved snapshot from a previous launch.
+   */
+  isLive: boolean;
   lastUpdated: Date | null;
   error: string | null;
+  /**
+   * 'offline' when there is no live price or history at all; 'partial' when
+   * only extras (dominance, sentiment, on-chain) failed and the core is live.
+   */
+  errorKind: 'offline' | 'partial' | null;
   /** Human-readable names of the sources that failed on the last refresh. */
   failedSources: string[];
   refresh: () => Promise<void>;
@@ -161,7 +171,12 @@ export interface IndicatorReading {
   signal: SignalDirection;
   /** Honest statement of how much this reading can move the allocation. */
   weight: string;
+  /** The technical detail. */
   explanation: string;
+  /** The same reading in everyday language, for someone who has never traded. */
+  plain: string;
+  /** Glossary entry explaining what this kind of reading is. */
+  term: string;
 }
 
 export interface PriceProjections {

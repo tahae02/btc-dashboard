@@ -5,11 +5,15 @@ import { SegmentedButtons } from 'react-native-paper';
 import { useSettings } from '../../src/context/SettingsContext';
 import { GlassCard } from '../../src/components/GlassCard';
 import { MIN_RSI_GAP } from '../../src/services/settings';
+import { useExplain } from '../../src/context/ExplainContext';
+import { InfoButton } from '../../src/components/InfoButton';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/constants/theme';
 import type { RefreshInterval, Currency, Timeframe } from '../../src/types';
 
 export default function SettingsScreen() {
   const settings = useSettings();
+  const { openGuide } = useExplain();
 
   const [rsiOBStr, setRsiOBStr] = useState(String(settings?.rsiOverbought ?? 70));
   const [rsiOSStr, setRsiOSStr] = useState(String(settings?.rsiOversold ?? 30));
@@ -44,9 +48,26 @@ export default function SettingsScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={styles.screenTitle}>Settings</Text>
 
+        <Pressable onPress={openGuide} accessibilityRole="button">
+          <GlassCard style={styles.learnCard}>
+            <Ionicons name="book-outline" size={22} color={Colors.accent} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Jargon explained</Text>
+              <Text style={styles.learnSub}>
+                RSI, MACD, Fear &amp; Greed and every other term in the app, in plain English. You can also tap the (i)
+                next to anything.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+          </GlassCard>
+        </Pressable>
+
         <Text style={styles.sectionHeader}>Signal</Text>
         <GlassCard>
-          <Text style={styles.label}>Signal timeframe</Text>
+          <View style={styles.labelRow}>
+            <Text style={[styles.label, { marginBottom: 0 }]}>Signal timeframe</Text>
+            <InfoButton term="timeframe" />
+          </View>
           <SegmentedButtons
             value={settings?.signalTimeframe ?? '1D'}
             onValueChange={(v) => settings?.setSignalTimeframe?.(v as Timeframe)}
@@ -61,7 +82,13 @@ export default function SettingsScreen() {
         </GlassCard>
 
         <GlassCard>
-          <Text style={styles.label}>Mean-reversion strength</Text>
+          <View style={styles.labelRow}>
+            <Text style={[styles.label, { marginBottom: 0 }]}>Mean-reversion strength</Text>
+            <InfoButton term="stretch" />
+          </View>
+          <Text style={styles.sublabel}>
+            In plain English: how much the app buys extra after sharp falls, and holds back after sharp rises.
+          </Text>
           <SegmentedButtons
             value={String(settings.stretchWeight)}
             onValueChange={(v) => settings?.setStretchWeight?.(parseFloat(v))}
@@ -213,6 +240,9 @@ const styles = StyleSheet.create({
   },
   inputInvalid: { borderColor: Colors.bearish },
   resetText: { ...Typography.body, color: Colors.accent, textAlign: 'center' },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm },
+  learnCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  learnSub: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 17, marginTop: -4 },
   aboutText: { ...Typography.body, fontWeight: '600' },
   aboutSub: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.sm, lineHeight: 17 },
   disclaimer: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 18, marginTop: Spacing.md },

@@ -12,6 +12,10 @@ import { SignalBadge } from '../../src/components/SignalBadge';
 import { FearGreedGauge } from '../../src/components/FearGreedGauge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
 import { ErrorRetry } from '../../src/components/ErrorRetry';
+import { InfoButton } from '../../src/components/InfoButton';
+import { useExplain } from '../../src/context/ExplainContext';
+import { describeMarket, ACTION_PLAIN } from '../../src/services/plainEnglish';
+import { formatMoney } from '../../src/services/format';
 import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../../src/constants/theme';
 
 const formatNum = (n: number | null | undefined, decimals = 0): string => {
@@ -32,6 +36,7 @@ const timeAgo = (date: Date | null): string => {
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const { openGuide } = useExplain();
   const data = useData();
   const settings = useSettings();
 
@@ -54,6 +59,13 @@ export default function DashboardScreen() {
       ? `£${(price?.price_gbp ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
       : `$${price.price.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
     : '--';
+
+  // Everything next to the headline price follows the chosen currency. It used
+  // to show a pound price with the change, high and low still in dollars.
+  // Converted at the rate implied by the live BTC price in each currency.
+  const fx = settings?.currency === 'GBP' && price?.price && price?.price_gbp ? price.price_gbp / price.price : 1;
+  const inCcy = (n: number | null | undefined): string =>
+    n == null || isNaN(n) ? '--' : formatMoney(n * fx, settings?.currency === 'GBP' ? 'GBP' : 'USD');
 
   if (data?.isLoading && !price) {
     return (
@@ -80,6 +92,9 @@ export default function DashboardScreen() {
           <Pressable onPress={() => data?.refresh?.()} hitSlop={8} accessibilityLabel="Refresh market data">
             <Ionicons name="refresh" size={20} color={Colors.accent} />
           </Pressable>
+          <Pressable onPress={openGuide} hitSlop={8} accessibilityLabel="Jargon explained">
+            <Ionicons name="book-outline" size={20} color={Colors.accent} />
+          </Pressable>
         </View>
       </View>
 
@@ -88,7 +103,9 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={data?.isLoading ?? false} onRefresh={() => data?.refresh?.()} tintColor={Colors.accent} />}
       >
-        {data?.error && <ErrorRetry message={data.error} onRetry={() => data?.refresh?.()} />}
+        {data?.error && (
+          <ErrorRetry message={data.error} compact={data.errorKind === 'partial'} onRetry={() => data?.refresh?.()} />
+        )}
 
         {/* Price */}
         <GlassCard style={styles.heroCard}>
@@ -98,11 +115,11 @@ export default function DashboardScreen() {
           </View>
           <Text style={styles.priceText}>{priceDisplay}</Text>
           <Text style={[styles.changeText, { color: isUp ? Colors.bullish : Colors.bearish }]}>
-            {isUp ? '▲' : '▼'} {formatNum(Math.abs(price?.change_24h ?? 0), 0)} ({(price?.change_24h_pct ?? 0).toFixed(2)}%)
+            {isUp ? '▲' : '▼'} {inCcy(Math.abs(price?.change_24h ?? 0))} ({(price?.change_24h_pct ?? 0).toFixed(2)}%)
           </Text>
           <View style={styles.hlRow}>
-            <Text style={styles.hlText}>24h High: {formatNum(price?.high_24h, 0)}</Text>
-            <Text style={styles.hlText}>24h Low: {formatNum(price?.low_24h, 0)}</Text>
+            <Text style={styles.hlText}>24h High: {inCcy(price?.high_24h)}</Text>
+            <Text style={styles.hlText}>24h Low: {inCcy(price?.low_24h)}</Text>
           </View>
         </GlassCard>
 
@@ -120,7 +137,10 @@ export default function DashboardScreen() {
             ) : (
               <>
                 <View style={styles.regimeRow}>
-                  <Text style={styles.regimeLabel}>Market regime</Text>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.regimeLabel}>Market regime</Text>
+                    <InfoButton term="regime" />
+                  </View>
                   <View style={[styles.regimePill, { backgroundColor: getRegimeColor(signal.regime) + '22', borderColor: getRegimeColor(signal.regime) }]}>
                     <Text style={[styles.regimePillText, { color: getRegimeColor(signal.regime) }]}>
                       {signal.regime} {signal.regimeScore >= 0 ? '+' : ''}{signal.regimeScore}/3
@@ -129,32 +149,62 @@ export default function DashboardScreen() {
                 </View>
 
                 <View style={styles.actionRow}>
-                  <SignalBadge signal={signal.actionLabel} />
-                  <Text style={styles.convictionText}>Conviction {signal.conviction}%</Text>
+                  <View style={styles.labelRow}>
+                    <SignalBadge signal={signal.actionLabel} />
+                    <InfoButton term="action" />
+                  </View>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.convictionText}>Conviction {signal.conviction}%</Text>
+                    <InfoButton term="conviction" />
+                  </View>
                 </View>
+                <Text style={styles.actionPlain}>{ACTION_PLAIN[signal.action]}</Text>
 
                 {/* Target allocation is the actual output. A filled bar is far
                     more legible than a number for "how much should I hold". */}
-                <Text style={styles.allocLabel}>
-                  Target Bitcoin allocation: {(signal.targetAllocation * 100).toFixed(0)}%
-                </Text>
+                <View style={[styles.labelRow, styles.allocLabelRow]}>
+                  <Text style={styles.allocLabel}>
+                    Target Bitcoin allocation: {(signal.targetAllocation * 100).toFixed(0)}%
+                  </Text>
+                  <InfoButton term="targetAllocation" />
+                </View>
                 <View style={styles.allocBar}>
                   <View style={[styles.allocFill, { width: `${signal.targetAllocation * 100}%`, backgroundColor: getSignalColor(signal.actionLabel) }]} />
                 </View>
 
-                <Text style={styles.dcaText}>
+                <View style={[styles.labelRow, styles.dcaRow]}>
+                <Text style={[styles.dcaText, styles.flex, { marginTop: 0 }]}>
                   {signal.dcaMultiplier === 1
                     ? 'Contribute your usual amount this period.'
                     : signal.dcaMultiplier > 1
                     ? `Consider ${signal.dcaMultiplier}× your usual contribution this period.`
                     : `Consider ${signal.dcaMultiplier}× your usual contribution, holding the rest as cash.`}
                 </Text>
+                <InfoButton term="dcaMultiplier" />
+                </View>
 
                 <Text style={styles.tapHint}>Tap for the full breakdown →</Text>
               </>
             )}
           </GlassCard>
         </Pressable>
+
+        {/* The same call, in everyday language. Every sentence comes from a
+            number the engine produced; nothing here adds a view of its own. */}
+        {hasSignal && (
+          <GlassCard>
+            <View style={[styles.labelRow, { marginBottom: Spacing.sm }]}>
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.accent} />
+              <Text style={styles.plainTitle}>In plain English</Text>
+            </View>
+            {describeMarket(signal, fg?.current?.value ?? null, fg?.current?.value_classification ?? null, settings.currency).map((line, i) => (
+              <Text key={i} style={styles.plainText}>{line}</Text>
+            ))}
+            <Pressable onPress={openGuide} style={{ marginTop: Spacing.sm }} accessibilityRole="button">
+              <Text style={styles.tapHint}>What do all these terms mean? →</Text>
+            </Pressable>
+          </GlassCard>
+        )}
 
         {/* Kept adjacent to the advice rather than buried in Settings. */}
         <Text style={styles.disclaimer}>
@@ -165,13 +215,16 @@ export default function DashboardScreen() {
         {/* Stats */}
         <View style={styles.statsGrid}>
           {[
-            { label: 'Market Cap', value: formatNum(price?.market_cap) },
-            { label: '24h Volume', value: formatNum(price?.volume_24h) },
-            { label: 'BTC Dominance', value: data?.btcDominance != null ? `${data.btcDominance.toFixed(1)}%` : '--' },
-            { label: 'Volatility (ATR)', value: indicators?.atrPct != null ? `${indicators.atrPct.toFixed(1)}%` : '--' },
+            { label: 'Market Cap', term: 'marketCap', value: formatNum(price?.market_cap) },
+            { label: '24h Volume', term: 'volume', value: formatNum(price?.volume_24h) },
+            { label: 'BTC Dominance', term: 'dominance', value: data?.btcDominance != null ? `${data.btcDominance.toFixed(1)}%` : '--' },
+            { label: 'Volatility (ATR)', term: 'atr', value: indicators?.atrPct != null ? `${indicators.atrPct.toFixed(1)}%` : '--' },
           ].map((stat, i) => (
             <GlassCard key={i} style={styles.statCard}>
-              <Text style={styles.statLabel}>{stat.label}</Text>
+              <View style={styles.statLabelRow}>
+                <Text style={styles.statLabel}>{stat.label}</Text>
+                <InfoButton term={stat.term} size={14} />
+              </View>
               <Text style={styles.statValue}>{stat.value}</Text>
             </GlassCard>
           ))}
@@ -180,7 +233,10 @@ export default function DashboardScreen() {
         {/* Fear & Greed */}
         {fg && (
           <GlassCard style={styles.gaugeCard}>
-            <Text style={styles.sectionTitle}>Fear &amp; Greed Index</Text>
+            <View style={[styles.labelRow, styles.titleRow]}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Fear &amp; Greed Index</Text>
+              <InfoButton term="fearGreed" />
+            </View>
             <FearGreedGauge value={fg?.current?.value ?? 50} label={fg?.current?.value_classification ?? 'Neutral'} />
           </GlassCard>
         )}
@@ -188,7 +244,10 @@ export default function DashboardScreen() {
         {/* Volatility bands. Explicitly not a forecast. */}
         {hasSignal && signal.projections && (
           <GlassCard>
-            <Text style={styles.sectionTitle}>Expected range</Text>
+            <View style={[styles.labelRow, styles.titleRow]}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Expected range</Text>
+              <InfoButton term="expectedRange" />
+            </View>
             {[
               { label: 'Next 24h', r: signal.projections.range1d },
               { label: 'Next 7d', r: signal.projections.range7d },
@@ -196,7 +255,7 @@ export default function DashboardScreen() {
               <View key={row.label} style={styles.projRow}>
                 <Text style={styles.projLabel}>{row.label}</Text>
                 <Text style={styles.projValue}>
-                  ${Math.max(0, row.r.low).toLocaleString(undefined, { maximumFractionDigits: 0 })} – ${row.r.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {inCcy(Math.max(0, row.r.low))} – {inCcy(row.r.high)}
                 </Text>
               </View>
             ))}
@@ -231,7 +290,7 @@ const styles = StyleSheet.create({
   regimePillText: { ...Typography.caption, fontWeight: '700' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   convictionText: { ...Typography.caption, color: Colors.textSecondary },
-  allocLabel: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.md, marginBottom: 6 },
+  allocLabel: { ...Typography.caption, color: Colors.textSecondary },
   allocBar: { height: 8, backgroundColor: Colors.elevated, borderRadius: 4, overflow: 'hidden' },
   allocFill: { height: '100%', borderRadius: 4 },
   dcaText: { ...Typography.body, color: Colors.textPrimary, marginTop: Spacing.md, lineHeight: 22 },
@@ -248,4 +307,13 @@ const styles = StyleSheet.create({
   projLabel: { ...Typography.body, color: Colors.textSecondary },
   projValue: { ...Typography.monoData },
   projNote: { ...Typography.caption, color: Colors.textTertiary, marginTop: Spacing.sm, lineHeight: 17 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  titleRow: { alignSelf: 'flex-start', marginBottom: Spacing.md },
+  flex: { flex: 1 },
+  statLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  allocLabelRow: { marginTop: Spacing.md, marginBottom: 6 },
+  dcaRow: { alignItems: 'flex-start', marginTop: Spacing.md },
+  actionPlain: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.sm, lineHeight: 17 },
+  plainTitle: { ...Typography.subheading },
+  plainText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 23, fontSize: 15, marginBottom: Spacing.sm },
 });
