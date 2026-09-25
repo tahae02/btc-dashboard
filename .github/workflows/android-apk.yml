@@ -25,9 +25,11 @@ on:
       - 'scripts/**'
   workflow_dispatch:
 
-# A newer push supersedes an in-flight build of the same branch.
+# One build at a time across ALL branches, newest wins. Every build
+# publishes to the same download link, so two running at once (say a branch
+# push and the merge to main straight after) would race to overwrite it.
 concurrency:
-  group: android-apk-${{ github.ref }}
+  group: android-apk
   cancel-in-progress: true
 
 permissions:
@@ -123,10 +125,42 @@ jobs:
 
           Signed with the Expo template's shared development key. That is fine for installing on your own phone, but not suitable for publishing to the Play Store.
           EOF
-          gh release delete apk-latest --yes --cleanup-tag || true
-          gh release create apk-latest out/btc-analyst.apk \
-            --target "$GITHUB_SHA" \
-            --prerelease \
-            --title "BTC Analyst: latest build" \
-            --notes-file notes.md
-          echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/apk-latest/btc-analyst.apk"
+          # The release is updated in place, never deleted and recreated.
+          # Deleting the release and its tag, then creating them again
+          # seconds later, once left the new release stuck as an untagged
+          # DRAFT: invisible to anyone else, so the link returned 404, while
+          # `gh` still reported success.
+          TAG=apk-latest
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/btc-analyst.apk"
+
+          # Clear out any drafts a failed publish left behind.
+          for id in $(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[] | select(.draft) | .id'); do
+            echo "Deleting stale draft release $id"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/$id"
+          done
+
+          # Point the tag at this build.
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$TAG"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --draft=false --prerelease --title "BTC Analyst: latest build" --notes-file notes.md
+          else
+            gh release create "$TAG" --verify-tag --prerelease --title "BTC Analyst: latest build" --notes-file notes.md
+          fi
+          gh release upload "$TAG" out/btc-analyst.apk --clobber
+
+          # Prove the link works for someone who is not logged in, and that it
+          # serves this build, before calling the job a success.
+          expected=$(stat -c %s out/btc-analyst.apk)
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            size=$(curl -sfL -o /dev/null -w '%{size_download}' "$URL" || echo 0)
+            if [ "$size" = "$expected" ]; then
+              echo "Download verified ($size bytes): $URL"
+              exit 0
+            fi
+            echo "Attempt $attempt: got $size bytes, expected $expected. Retrying..."
+            sleep 6
+          done
+          echo "::error::The download link is not serving this build: $URL"
+          exit 1

@@ -32,6 +32,8 @@ Tabs: Home, Chart, Signals, Portfolio, On-Chain, Settings. The first tab is labe
 - Work on a branch and open a PR into `main`. The PR description is the record of what changed and why, for future sessions.
 - CI (`.github/workflows/ci.yml`) runs typecheck, the Android bundle, tests, a live probe of every data source (informational only) and a backtest smoke test.
 - The APK workflow builds on every push to `main` or `claude/**` and republishes the same link: https://github.com/tahae02/btc-dashboard/releases/download/apk-latest/btc-analyst.apk. It takes about 11 minutes. Installing over the top keeps the owner's data; uninstalling wipes it.
+- The publish step updates the `apk-latest` release in place and then downloads the link to prove it serves the new build, failing the job if not. Do not go back to deleting and recreating the release: that once left it as an untagged draft, the link returned 404 for the owner, and the job still reported success. Only one APK build runs at a time across all branches, newest wins.
+- After pushing, wait for the APK job and check its log says "Download verified" before telling the owner the link is ready.
 
 ## Decisions already made (and why)
 
