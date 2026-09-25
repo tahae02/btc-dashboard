@@ -55,6 +55,10 @@ Volatility (ATR) and support/resistance are shown as **context** and explicitly 
 
 **Portfolio tab.** Already own Bitcoin? Add a *starting balance*: the total you have put in and the BTC you hold now. Your average cost is worked out in pounds and, at today's rate, dollars. Trades dated before the starting balance are treated as already inside it, so back-logging an old order never counts it twice.
 
+Holdings are always shown in both pounds and dollars, whatever the currency setting: value and profit side by side, with cost of holdings and average cost in pounds and dollars underneath. The currency you did not buy in is converted at today's exchange rate, and the screen says so.
+
+Tap any trade for everything recorded at that moment: the order (total, fee, BTC, exchange price, price including fee), the market (BTC in pounds and dollars, Fear & Greed with its label, RSI, volatility, the 200-day average and how far the price was from it), what the app said (advice, regime, conviction, target allocation, DCA multiplier, stretch, momentum, and whether it was recorded live or replayed), and what the price did 1, 7, 30 and 90 days later. The CSV export carries all of it.
+
 Then log each buy or sell with the figures from your exchange's order details: total, BTC, price per BTC and fee. Any two of total, BTC and price are enough; the third is worked out, and if you enter all three they are checked against each other so a typo cannot skew your average cost. Enter only the total and BTC is worked out from the market price at that moment, in pounds or dollars. Each trade is stamped with what the signal was saying at the time, frozen so that later engine changes never rewrite what you acted on. Back-dated trades get the signal replayed from the daily history for that day. The tab shows holdings, average cost, P&L (average-cost method), how the price moved 1, 7, 30 and 90 days after each trade, and your buys grouped by the signal they were made on. Trades stay on the phone; export a backup or CSV from the bottom of the tab.
 
 **Track record (Signals tab).** Two records, scored the same way:
@@ -213,7 +217,7 @@ The app's banner now gives the reason too, e.g. `(HTTP 403)`, `(timed out after 
 ## Testing
 
 ```bash
-yarn test          # 186 tests, no install required
+yarn test          # 190 tests, no install required
 yarn test:watch
 yarn typecheck
 ```

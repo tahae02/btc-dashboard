@@ -11,7 +11,7 @@ import {
   TRADES_KEY, OPENING_KEY, parseTrades, parseOpening, parseBackup, mergeTrades, sortTrades,
   type Trade, type SignalStamp, type OpeningPosition,
 } from '../services/journal';
-import { SIGNAL_LOG_KEY, REPLAY_WARMUP, parseSignalLog, appendToLog, type LoggedCall } from '../services/trackRecord';
+import { SIGNAL_LOG_KEY, REPLAY_WARMUP, parseSignalLog, appendToLog, stampFrom, type LoggedCall } from '../services/trackRecord';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -90,6 +90,7 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
   const indicators = useMemo(() => computeIndicators(closedDaily), [closedDaily]);
   const livePrice = data.price?.price ?? 0;
   const fearGreed = data.fearGreed?.current?.value ?? null;
+  const fearGreedLabel = data.fearGreed?.current?.value_classification ?? null;
 
   const liveSignal = useMemo(
     () =>
@@ -100,19 +101,8 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const liveStamp = useMemo<SignalStamp | null>(
-    () =>
-      liveSignal
-        ? {
-            action: liveSignal.action,
-            targetAllocation: liveSignal.targetAllocation,
-            dcaMultiplier: liveSignal.dcaMultiplier,
-            conviction: liveSignal.conviction,
-            regimeScore: liveSignal.regimeScore,
-            fearGreed,
-            source: 'live',
-          }
-        : null,
-    [liveSignal, fearGreed]
+    () => (liveSignal ? stampFrom(liveSignal, indicators, fearGreed, fearGreedLabel, 'live') : null),
+    [liveSignal, indicators, fearGreed, fearGreedLabel]
   );
 
   // Record today's call, once per closed daily bar. Only from live data: a

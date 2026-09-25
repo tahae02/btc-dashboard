@@ -34,6 +34,9 @@ export const ENDPOINTS = {
     `${KRAKEN_BASE}/OHLC?pair=XBT${quote}&interval=${KRAKEN_INTERVAL[tf]}`,
   dominance: `${PAPRIKA_BASE}/global`,
   fearGreed: `${ALTERNATIVE_ME_BASE}/fng/?limit=31&format=json`,
+  // Every daily reading since 2018. Fetched only to record the reading at the
+  // time of a back-dated trade.
+  fearGreedHistory: `${ALTERNATIVE_ME_BASE}/fng/?limit=0&format=json`,
   hashrate: `${MEMPOOL_BASE}/v1/mining/hashrate/1m`,
   difficulty: `${MEMPOOL_BASE}/v1/difficulty-adjustment`,
   mempool: `${MEMPOOL_BASE}/mempool`,

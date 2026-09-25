@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  lastClosedIndex, callOnDay, replayCalls, reconstructStamp, scoreCalls, parseSignalLog, appendToLog,
+  lastClosedIndex, callOnDay, replayCalls, reconstructStamp, scoreCalls, parseSignalLog, appendToLog, fearGreedAt,
   REPLAY_WARMUP, type DayCall, type LoggedCall,
 } from '../src/services/trackRecord';
 import { generateSyntheticSeries } from '../backtest/data';
@@ -142,5 +142,32 @@ describe('signal log', () => {
     assert.deepEqual(log.map((e) => e.day), [1, 2]);
     assert.equal(log[0]!.action, 'ACCUMULATE');
     assert.deepEqual(parseSignalLog('nope'), []);
+  });
+});
+
+describe('trade detail at the time', () => {
+  const day = (i: number) => DATA[i]!.time;
+  const fg = (i: number, value: number) => ({ value, value_classification: value < 25 ? 'Extreme Fear' : 'Fear', timestamp: String(day(i) / 1000) });
+
+  test('fearGreedAt finds the reading in force, and refuses a stale one', () => {
+    const history = [fg(300, 40), fg(301, 12), fg(302, 45)];
+    assert.equal(fearGreedAt(history, day(301) + 5 * 3600000)?.value, 12);
+    assert.equal(fearGreedAt(history, day(300) - 1), null, 'before the history starts');
+    assert.equal(fearGreedAt(history, day(302) + 3 * DAY), null, 'more than two days after the last reading');
+  });
+
+  test('a back-dated stamp records the readings behind the call, and uses that day\'s Fear & Greed', () => {
+    const t = day(350) + DAY + 3600000;
+    const plain = reconstructStamp(DATA, t);
+    const withFg = reconstructStamp(DATA, t, undefined, [fg(351, 10)]);
+    assert.ok(plain && withFg);
+    assert.equal(plain.fearGreed, null);
+    assert.equal(withFg.fearGreed, 10);
+    assert.equal(withFg.fearGreedLabel, 'Extreme Fear');
+    // Extreme fear nudges the allocation up, exactly as it would have live.
+    assert.ok(withFg.targetAllocation >= plain.targetAllocation);
+    for (const k of ['regime', 'rsi', 'atrPct', 'priceVsSma200Pct', 'sma200', 'stretchScore', 'momentumScore'] as const) {
+      assert.ok(withFg[k] != null, `${k} was not recorded`);
+    }
   });
 });

@@ -3,11 +3,11 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Share, TextInput 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useData } from '../../src/context/DataContext';
-import { useSettings } from '../../src/context/SettingsContext';
 import { useJournal } from '../../src/context/JournalContext';
 import { GlassCard } from '../../src/components/GlassCard';
 import { AddTradeSheet } from '../../src/components/AddTradeSheet';
 import { OpeningSheet } from '../../src/components/OpeningSheet';
+import { TradeDetailSheet } from '../../src/components/TradeDetailSheet';
 import { InfoButton } from '../../src/components/InfoButton';
 import { useExplain } from '../../src/context/ExplainContext';
 import {
@@ -28,11 +28,11 @@ const daysUntil = (t: number) => Math.max(1, Math.ceil((t - Date.now()) / 864000
 
 export default function PortfolioScreen() {
   const data = useData();
-  const settings = useSettings();
   const journal = useJournal();
   const { explain } = useExplain();
   const [sheet, setSheet] = useState<TradeSide | null>(null);
   const [openingOpen, setOpeningOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreText, setRestoreText] = useState('');
 
@@ -51,20 +51,38 @@ export default function PortfolioScreen() {
     [hourly, data.ohlcv]
   );
 
-  const currency = settings.currency;
   const liveUsd = data.price?.price ?? 0;
   const liveGbp = data.price?.price_gbp ?? 0;
-  const summary = useMemo(
-    () => summariseHoldings(journal.trades, currency, { usd: liveUsd, gbp: liveGbp }, journal.opening),
-    [journal.trades, currency, liveUsd, liveGbp, journal.opening]
+  // Always both currencies, whatever the display setting: pounds are what you
+  // pay in, dollars are what the charts are in.
+  const gbp = useMemo(
+    () => summariseHoldings(journal.trades, 'GBP', { usd: liveUsd, gbp: liveGbp }, journal.opening),
+    [journal.trades, liveUsd, liveGbp, journal.opening]
   );
+  const usd = useMemo(
+    () => summariseHoldings(journal.trades, 'USD', { usd: liveUsd, gbp: liveGbp }, journal.opening),
+    [journal.trades, liveUsd, liveGbp, journal.opening]
+  );
+  const summary = gbp;
+  // Which currency the money actually went in, so the note can say which
+  // figures are converted at today's rate.
+  const used = new Set([...journal.trades.map((t) => t.currency), ...(journal.opening ? [journal.opening.currency] : [])]);
   const groups = useMemo(() => groupBuysBySignal(journal.trades, series), [journal.trades, series]);
   const newestFirst = useMemo(() => [...journal.trades].reverse(), [journal.trades]);
+
+  const detailTrade = detailId ? journal.trades.find((t) => t.id === detailId) ?? null : null;
 
   const confirmDelete = (t: Trade) => {
     Alert.alert('Delete this trade?', `${t.side === 'buy' ? 'Buy' : 'Sell'} of ${formatMoney(t.fiat, t.currency)} on ${formatDateTime(t.time)}.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => journal.deleteTrade(t.id) },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          journal.deleteTrade(t.id);
+          setDetailId(null);
+        },
+      },
     ]);
   };
 
@@ -91,7 +109,6 @@ export default function PortfolioScreen() {
 
   const hasPrice = liveUsd > 0;
   const hasAnything = journal.trades.length > 0 || journal.opening != null;
-  const otherCcy = currency === 'GBP' ? 'USD' : 'GBP';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -120,38 +137,47 @@ export default function PortfolioScreen() {
           <GlassCard>
             <Text style={styles.label}>Holdings</Text>
             <Text style={styles.btcBig}>{formatBtc(summary.btc)} BTC</Text>
-            <Text style={styles.valueBig}>{hasPrice ? formatMoney(summary.value, currency) : '--'}</Text>
-            {hasPrice && summary.costBasis > 0 && (
-              <Text style={[styles.pnl, { color: pnlColour(summary.unrealised) }]}>
-                {formatMoney(summary.unrealised, currency, true)}
-                {summary.unrealisedPct != null ? ` (${formatPct(summary.unrealisedPct / 100)})` : ''}
-              </Text>
-            )}
+            <View style={styles.pairRow}>
+              {([['GBP', gbp], ['USD', usd]] as const).map(([ccy, s]) => (
+                <View key={ccy} style={styles.pairCell}>
+                  <Text style={styles.valueBig} numberOfLines={1} adjustsFontSizeToFit>
+                    {hasPrice ? formatMoney(s.value, ccy) : '--'}
+                  </Text>
+                  {hasPrice && s.costBasis > 0 && (
+                    <Text style={[styles.pnl, { color: pnlColour(s.unrealised) }]} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatMoney(s.unrealised, ccy, true)}
+                      {s.unrealisedPct != null ? ` (${formatPct(s.unrealisedPct / 100)})` : ''}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </View>
             <View style={styles.statRow}>
               <View style={styles.stat}>
                 <Text style={styles.statLabel}>Cost of holdings</Text>
-                <Text style={styles.statValue}>{formatMoney(summary.costBasis, currency)}</Text>
+                <Text style={styles.statValue}>{formatMoney(gbp.costBasis, 'GBP')}</Text>
+                <Text style={styles.statSub}>{formatMoney(usd.costBasis, 'USD')}</Text>
               </View>
               <View style={styles.stat}>
                 <View style={styles.labelRow}>
                   <Text style={styles.statLabel}>Average cost</Text>
                   <InfoButton term="averageCost" />
                 </View>
-                <Text style={styles.statValue}>{summary.avgCost != null ? formatMoney(summary.avgCost, currency) : '--'}</Text>
-                {summary.avgCostIn[otherCcy] != null && (
-                  <Text style={styles.statSub}>{formatMoney(summary.avgCostIn[otherCcy]!, otherCcy)} at today's rate</Text>
-                )}
+                <Text style={styles.statValue}>{gbp.avgCost != null ? formatMoney(gbp.avgCost, 'GBP') : '--'}</Text>
+                <Text style={styles.statSub}>{usd.avgCost != null ? formatMoney(usd.avgCost, 'USD') : '--'}</Text>
               </View>
             </View>
             {summary.sells > 0 && (
               <View style={styles.statRow}>
                 <View style={styles.stat}>
                   <Text style={styles.statLabel}>Realised from sells</Text>
-                  <Text style={[styles.statValue, { color: pnlColour(summary.realised) }]}>{formatMoney(summary.realised, currency, true)}</Text>
+                  <Text style={[styles.statValue, { color: pnlColour(gbp.realised) }]}>{formatMoney(gbp.realised, 'GBP', true)}</Text>
+                  <Text style={styles.statSub}>{formatMoney(usd.realised, 'USD', true)}</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={styles.statLabel}>Total put in</Text>
-                  <Text style={styles.statValue}>{formatMoney(summary.invested, currency)}</Text>
+                  <Text style={styles.statValue}>{formatMoney(gbp.invested, 'GBP')}</Text>
+                  <Text style={styles.statSub}>{formatMoney(usd.invested, 'USD')}</Text>
                 </View>
               </View>
             )}
@@ -169,9 +195,13 @@ export default function PortfolioScreen() {
                 <Text style={styles.link}>Add it</Text>
               </Pressable>
             )}
-            {summary.converted && (
+            {used.size > 0 && (
               <Text style={styles.note}>
-                Some amounts are in {currency === 'GBP' ? 'dollars' : 'pounds'} and are converted at today's rate, so these totals are approximate.
+                {used.size > 1
+                  ? 'You have bought in both pounds and dollars; amounts are converted between them at today\'s exchange rate, so the totals are approximate.'
+                  : used.has('GBP')
+                  ? 'You bought in pounds. The dollar costs convert what you paid at today\'s exchange rate, not the rate on the day.'
+                  : 'You bought in dollars. The pound costs convert what you paid at today\'s exchange rate, not the rate on the day.'}
               </Text>
             )}
             {summary.oversold && (
@@ -228,7 +258,8 @@ export default function PortfolioScreen() {
           const outcomes = tradeOutcomes(t, series);
           const covered = isCoveredByOpening(t, journal.opening);
           return (
-            <GlassCard key={t.id} style={styles.tradeCard}>
+            <Pressable key={t.id} onPress={() => setDetailId(t.id)} accessibilityRole="button" accessibilityLabel="Open trade details">
+            <GlassCard style={styles.tradeCard}>
               <View style={styles.tradeTop}>
                 <View style={styles.tradeTopLeft}>
                   <View style={[styles.sidePill, { backgroundColor: (t.side === 'buy' ? Colors.bullish : Colors.bearish) + '26' }]}>
@@ -256,7 +287,9 @@ export default function PortfolioScreen() {
                 <View style={styles.stampRow}>
                   <Text style={[styles.stampAction, { color: getSignalColor(t.signal.action) }]}>{ACTION_LABEL[t.signal.action]}</Text>
                   <Text style={styles.stampMeta}>
-                    {' '}· {t.signal.dcaMultiplier}× · conviction {t.signal.conviction}%{t.signal.source === 'reconstructed' ? ' · replayed' : ''}
+                    {' '}· {t.signal.dcaMultiplier}× · conviction {t.signal.conviction}%
+                    {t.signal.fearGreed != null ? ` · F&G ${t.signal.fearGreed}` : ''}
+                    {t.signal.source === 'reconstructed' ? ' · replayed' : ''}
                   </Text>
                 </View>
               ) : (
@@ -276,7 +309,9 @@ export default function PortfolioScreen() {
                 ))}
               </View>
               {t.note ? <Text style={styles.tradeNote}>{t.note}</Text> : null}
+              <Text style={styles.detailHint}>Tap for everything recorded →</Text>
             </GlassCard>
+            </Pressable>
           );
         })}
 
@@ -326,6 +361,15 @@ export default function PortfolioScreen() {
 
       <AddTradeSheet visible={sheet != null} initialSide={sheet ?? 'buy'} onClose={() => setSheet(null)} />
       <OpeningSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} />
+      {detailTrade && (
+        <TradeDetailSheet
+          trade={detailTrade}
+          series={series}
+          covered={isCoveredByOpening(detailTrade, journal.opening)}
+          onClose={() => setDetailId(null)}
+          onDelete={confirmDelete}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -340,8 +384,10 @@ const styles = StyleSheet.create({
   body: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22, fontSize: 15 },
   label: { ...Typography.caption },
   btcBig: { ...Typography.monoData, fontSize: 16, color: Colors.textSecondary, marginTop: 4 },
-  valueBig: { ...Typography.priceDisplay, marginTop: 2 },
-  pnl: { ...Typography.monoData, fontSize: 16, marginTop: 2 },
+  valueBig: { ...Typography.priceDisplay, fontSize: 24, marginTop: 2 },
+  pairRow: { flexDirection: 'row', gap: Spacing.md, marginTop: 2 },
+  pairCell: { flex: 1 },
+  pnl: { ...Typography.monoData, fontSize: 14, marginTop: 2 },
   statRow: { flexDirection: 'row', marginTop: Spacing.lg, gap: Spacing.md },
   stat: { flex: 1 },
   statLabel: { ...Typography.caption, color: Colors.textTertiary },
@@ -384,6 +430,7 @@ const styles = StyleSheet.create({
   outcomeLabel: { ...Typography.caption, color: Colors.textTertiary, fontSize: 11 },
   outcomeValue: { ...Typography.monoData, fontSize: 13, marginTop: 2 },
   outcomePending: { ...Typography.caption, color: Colors.textTertiary, marginTop: 2 },
+  detailHint: { ...Typography.caption, color: Colors.accent, fontSize: 11, marginTop: Spacing.sm },
   tradeNote: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.sm, fontStyle: 'italic' },
   footnote: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, paddingHorizontal: Spacing.xs },
   backupRow: { flexDirection: 'row', gap: Spacing.lg, marginTop: Spacing.md, flexWrap: 'wrap' },

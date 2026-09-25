@@ -22,6 +22,7 @@ const trade = (over: Partial<Trade> = {}): Trade => ({
   unitPrice: null,
   fee: 0,
   marketPriceUsd: 60000,
+  marketPriceGbp: null,
   signal: null,
   note: '',
   createdAt: T0,
@@ -380,5 +381,38 @@ describe('starting balance', () => {
     assert.deepEqual(b.opening, opening);
     assert.equal(b.trades.length, 1);
     assert.equal(parseBackup(JSON.stringify({ app: 'btc-analyst', version: 1, trades: [trade({ id: 'y' })] })).opening, null);
+  });
+});
+
+describe('full detail survives storage', () => {
+  test('every recorded reading round-trips; an old trade without them still loads', () => {
+    const signal: SignalStamp = {
+      action: 'ACCUMULATE_STRONG', targetAllocation: 0.93, dcaMultiplier: 1.5, conviction: 72, regimeScore: 3,
+      fearGreed: 40, fearGreedLabel: 'Fear', source: 'live', regime: 'BULL', stretchScore: 0.87, momentumScore: 0.56,
+      rsi: 62.2, atrPct: 3.8, priceVsSma200Pct: 18.4, sma200: 63311,
+    };
+    const t = trade({ id: 'full', signal, marketPriceGbp: 62899 });
+    const [back] = parseTrades(JSON.stringify([t]));
+    assert.deepEqual(back, t);
+    const old = JSON.parse(JSON.stringify(t));
+    delete old.marketPriceGbp;
+    old.signal = { action: 'HOLD', targetAllocation: 0.5, dcaMultiplier: 1, conviction: 40, regimeScore: 0, fearGreed: null, source: 'live' };
+    const [loaded] = parseTrades(JSON.stringify([old]));
+    assert.equal(loaded?.marketPriceGbp, null);
+    assert.equal(loaded?.signal?.rsi, null);
+    assert.equal(loaded?.signal?.regime, undefined);
+  });
+
+  test('the CSV carries the detail', () => {
+    const csv = tradesToCsv([trade({ signal: {
+      action: 'HOLD', targetAllocation: 0.5, dcaMultiplier: 1, conviction: 40, regimeScore: 0, fearGreed: 33,
+      fearGreedLabel: 'Fear', source: 'live', rsi: 55.123,
+    } })]);
+    const [head, row] = csv.split('\n');
+    const cols = head!.split(',');
+    const cells = row!.split(',');
+    assert.equal(cells[cols.indexOf('fear_greed')], '33');
+    assert.equal(cells[cols.indexOf('fear_greed_label')], 'Fear');
+    assert.equal(cells[cols.indexOf('rsi')], '55.12');
   });
 });

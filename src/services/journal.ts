@@ -14,7 +14,7 @@
  *     your price includes fees and spread and the signal is not responsible
  *     for either.
  */
-import type { Action, Currency, OHLCVCandle } from '../types';
+import type { Action, Currency, OHLCVCandle, Regime } from '../types';
 import { formatMoney } from './format';
 
 export type TradeSide = 'buy' | 'sell';
@@ -27,6 +27,24 @@ export interface SignalStamp {
   conviction: number;
   regimeScore: number;
   fearGreed: number | null;
+  /*
+   * The fuller picture at the time, so every trade can be looked back on in
+   * detail later. All optional: trades logged by earlier versions of the app
+   * do not have them, and a value that was unavailable stays null.
+   */
+  regime?: Regime;
+  fearGreedLabel?: string | null;
+  /** -1..1, how far price had run up (+) or sold off (-) against its recent range. */
+  stretchScore?: number | null;
+  /** -1..1, whether recent moves were speeding up (+) or down (-). */
+  momentumScore?: number | null;
+  rsi?: number | null;
+  /** Typical daily range as a % of price. */
+  atrPct?: number | null;
+  /** How far price was above (+) or below (-) its 200-day average, in %. */
+  priceVsSma200Pct?: number | null;
+  /** The 200-day average itself, in USD. */
+  sma200?: number | null;
   /**
    * 'live': what the app was showing when the trade was logged.
    * 'reconstructed': replayed from daily history for a back-dated trade, so
@@ -54,6 +72,8 @@ export interface Trade {
   fee: number;
   /** BTC/USD market price at the time. Outcomes are measured from this. */
   marketPriceUsd: number | null;
+  /** BTC/GBP market price at the time, for the record. */
+  marketPriceGbp: number | null;
   signal: SignalStamp | null;
   note: string;
   createdAt: number;
@@ -102,6 +122,14 @@ const parseStamp = (s: any): SignalStamp | null => {
     regimeScore: s.regimeScore,
     fearGreed: isNum(s.fearGreed) ? s.fearGreed : null,
     source: s.source === 'live' ? 'live' : 'reconstructed',
+    regime: s.regime === 'BULL' || s.regime === 'BEAR' || s.regime === 'NEUTRAL' ? s.regime : undefined,
+    fearGreedLabel: typeof s.fearGreedLabel === 'string' ? s.fearGreedLabel.slice(0, 40) : null,
+    stretchScore: isNum(s.stretchScore) ? s.stretchScore : null,
+    momentumScore: isNum(s.momentumScore) ? s.momentumScore : null,
+    rsi: isNum(s.rsi) ? s.rsi : null,
+    atrPct: isNum(s.atrPct) ? s.atrPct : null,
+    priceVsSma200Pct: isNum(s.priceVsSma200Pct) ? s.priceVsSma200Pct : null,
+    sma200: isNum(s.sma200) ? s.sma200 : null,
   };
 };
 
@@ -120,6 +148,7 @@ const parseTrade = (t: any): Trade | null => {
     unitPrice: isPos(t.unitPrice) ? t.unitPrice : null,
     fee: isNum(t.fee) && t.fee >= 0 ? t.fee : 0,
     marketPriceUsd: isPos(t.marketPriceUsd) ? t.marketPriceUsd : null,
+    marketPriceGbp: isPos(t.marketPriceGbp) ? t.marketPriceGbp : null,
     signal: parseStamp(t.signal),
     note: typeof t.note === 'string' ? t.note.slice(0, 500) : '',
     createdAt: isNum(t.createdAt) ? t.createdAt : t.time,
@@ -561,11 +590,15 @@ const csvCell = (v: string | number | null | undefined): string => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
+const round2 = (v: number | null | undefined) => (v == null ? null : +v.toFixed(2));
+
 /** One row per trade, for a spreadsheet. */
 export const tradesToCsv = (trades: Trade[]): string => {
   const header = [
     'date_utc', 'side', 'total', 'currency', 'btc', 'exchange_price', 'fee', 'effective_price', 'market_price_usd',
-    'signal', 'dca_multiplier', 'conviction', 'target_allocation', 'signal_source', 'note',
+    'market_price_gbp', 'signal', 'dca_multiplier', 'conviction', 'target_allocation', 'regime', 'regime_score',
+    'fear_greed', 'fear_greed_label', 'rsi', 'volatility_pct', 'vs_200d_avg_pct', 'stretch', 'momentum',
+    'signal_source', 'note',
   ];
   const rows = sortTrades(trades).map((t) =>
     [
@@ -578,10 +611,20 @@ export const tradesToCsv = (trades: Trade[]): string => {
       t.fee,
       +(t.fiat / t.btc).toFixed(2),
       t.marketPriceUsd,
+      t.marketPriceGbp,
       t.signal?.action,
       t.signal?.dcaMultiplier,
       t.signal?.conviction,
       t.signal ? +t.signal.targetAllocation.toFixed(3) : null,
+      t.signal?.regime,
+      t.signal?.regimeScore,
+      t.signal?.fearGreed,
+      t.signal?.fearGreedLabel,
+      round2(t.signal?.rsi),
+      round2(t.signal?.atrPct),
+      round2(t.signal?.priceVsSma200Pct),
+      round2(t.signal?.stretchScore),
+      round2(t.signal?.momentumScore),
       t.signal?.source,
       t.note,
     ].map(csvCell).join(',')

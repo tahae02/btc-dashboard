@@ -4,14 +4,14 @@ import { SegmentedButtons } from 'react-native-paper';
 import { useData } from '../context/DataContext';
 import { useJournal } from '../context/JournalContext';
 import { useSettings } from '../context/SettingsContext';
-import { fetchOHLCV } from '../services/api';
+import { fetchOHLCV, fetchFearGreedHistory } from '../services/api';
 import { parseTradeForm, fillFromMarket, priceAt, makeId, type TradeSide, type PriceSeries, type SignalStamp, type Trade } from '../services/journal';
 import { reconstructStamp } from '../services/trackRecord';
 import { ACTION_LABEL } from '../services/signalEngine';
 import { TIMEFRAME_MS } from '../services/candles';
 import { formatMoney, formatBtc, toDateInput, toTimeInput, currencySymbol } from '../services/format';
 import { Colors, Typography, Spacing, BorderRadius, getSignalColor } from '../constants/theme';
-import type { Currency, OHLCVCandle } from '../types';
+import type { Currency, OHLCVCandle, FearGreedEntry } from '../types';
 
 interface Props {
   visible: boolean;
@@ -38,6 +38,7 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [gbp, setGbp] = useState<{ hourly: OHLCVCandle[]; daily: OHLCVCandle[] } | null>(null);
+  const [fgHistory, setFgHistory] = useState<FearGreedEntry[] | null>(null);
 
   // Fresh form each time it opens.
   useEffect(() => {
@@ -67,15 +68,30 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
     if (!visible || when !== 'earlier') return;
     if (!hourlyUsd.length) loadTimeframe('1H');
   }, [visible, when, hourlyUsd.length, loadTimeframe]);
+  // GBP candles are fetched whatever the trade currency, so every trade
+  // records its market price in both pounds and dollars.
   useEffect(() => {
-    if (!visible || when !== 'earlier' || currency !== 'GBP' || gbp) return;
+    if (!visible || when !== 'earlier' || gbp) return;
     let cancelled = false;
     Promise.allSettled([fetchOHLCV('1H', 'GBP'), fetchOHLCV('1D', 'GBP')]).then(([h, d]) => {
       if (cancelled) return;
       setGbp({ hourly: h.status === 'fulfilled' ? h.value : [], daily: d.status === 'fulfilled' ? d.value : [] });
     });
     return () => { cancelled = true; };
-  }, [visible, when, currency, gbp]);
+  }, [visible, when, gbp]);
+
+  // The Fear & Greed reading on the day of a back-dated trade, so it is
+  // recorded and fed into the replayed signal. The live feed only covers 31
+  // days, so the full history is fetched on demand.
+  const recentFg = data.fearGreed?.history;
+  useEffect(() => {
+    if (!visible || when !== 'earlier' || fgHistory) return;
+    let cancelled = false;
+    fetchFearGreedHistory()
+      .then((h) => { if (!cancelled) setFgHistory(h); })
+      .catch(() => { if (!cancelled) setFgHistory(recentFg ?? []); });
+    return () => { cancelled = true; };
+  }, [visible, when, fgHistory, recentFg]);
 
   const usdSeries = useMemo<PriceSeries[]>(
     () => [
@@ -111,11 +127,15 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
         : currency === 'USD'
         ? marketUsd
         : priceAt(t, gbpSeries);
-    const stamp: SignalStamp | null = when === 'now' ? journal.liveStamp : reconstructStamp(journal.closedDaily, t, journal.config);
+    const marketGbp = when === 'now' ? live?.price_gbp || null : priceAt(t, gbpSeries);
+    const stamp: SignalStamp | null =
+      when === 'now'
+        ? journal.liveStamp
+        : reconstructStamp(journal.closedDaily, t, journal.config, fgHistory ?? recentFg ?? []);
     // Only a total entered: the BTC comes from the market price at the time.
     const figures = fillFromMarket(side, parsed, marketCcy);
-    return { ok: true as const, t, figures, marketUsd, stamp, fromMarket: parsed.btc == null };
-  }, [side, when, date, time, currency, total, btc, price, fee, data.price, usdSeries, gbpSeries, journal.liveStamp, journal.closedDaily, journal.config]);
+    return { ok: true as const, t, figures, marketUsd, marketGbp, stamp, fromMarket: parsed.btc == null };
+  }, [side, when, date, time, currency, total, btc, price, fee, data.price, usdSeries, gbpSeries, journal.liveStamp, journal.closedDaily, journal.config, fgHistory, recentFg]);
 
   const save = () => {
     if (!draft.ok) {
@@ -141,6 +161,7 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
       unitPrice: f.unitPrice,
       fee: f.fee,
       marketPriceUsd: draft.marketUsd,
+      marketPriceGbp: draft.marketGbp,
       signal: draft.stamp,
       note: note.trim(),
       createdAt: Date.now(),
@@ -319,6 +340,14 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
                     <Text style={styles.previewLabel}>
                       {draft.stamp.dcaMultiplier}× DCA · conviction {draft.stamp.conviction}%
                       {draft.stamp.source === 'reconstructed' ? ' · replayed from that day' : ''}
+                    </Text>
+                    <Text style={styles.previewLabel}>
+                      Fear &amp; Greed then:{' '}
+                      {draft.stamp.fearGreed != null
+                        ? `${draft.stamp.fearGreed}${draft.stamp.fearGreedLabel ? ` (${draft.stamp.fearGreedLabel})` : ''}`
+                        : when === 'earlier' && fgHistory == null
+                        ? 'looking up…'
+                        : 'not available'}
                     </Text>
                   </View>
                 ) : (

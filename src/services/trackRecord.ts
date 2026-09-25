@@ -30,7 +30,7 @@
  * days with tomorrow's), so N days is nowhere near N independent results.
  * `independentPeriods` reports the honest count.
  */
-import type { Action, OHLCVCandle, SignalConfig } from '../types';
+import type { Action, OHLCVCandle, SignalConfig, SignalResult, Indicators, FearGreedEntry } from '../types';
 import { computeIndicators } from './indicators';
 import { computeSignal, DEFAULT_CONFIG } from './signalEngine';
 import type { SignalStamp } from './journal';
@@ -112,24 +112,70 @@ export const replayCalls = (
   return out;
 };
 
-/** Stamp for a back-dated trade: the call as of the last bar closed before it. */
+/**
+ * Everything worth keeping about the moment of a trade: the call itself plus
+ * the readings behind it, so the trade can be looked back on in full.
+ */
+export const stampFrom = (
+  s: SignalResult,
+  ind: Indicators,
+  fearGreed: number | null,
+  fearGreedLabel: string | null,
+  source: SignalStamp['source']
+): SignalStamp => ({
+  action: s.action,
+  targetAllocation: s.targetAllocation,
+  dcaMultiplier: s.dcaMultiplier,
+  conviction: s.conviction,
+  regimeScore: s.regimeScore,
+  fearGreed,
+  source,
+  regime: s.regime,
+  fearGreedLabel,
+  stretchScore: s.stretchScore,
+  momentumScore: s.momentumScore,
+  rsi: ind.rsi?.value ?? null,
+  atrPct: ind.atrPct,
+  priceVsSma200Pct: ind.priceVsSma200Pct,
+  sma200: ind.sma200,
+});
+
+/**
+ * The Fear & Greed reading in force at `t`: the latest one published at or
+ * before it. Readings are daily, so one more than two days old means the
+ * history does not cover `t`, and null is returned rather than a stale value.
+ */
+export const fearGreedAt = (history: FearGreedEntry[], t: number): FearGreedEntry | null => {
+  let best: FearGreedEntry | null = null;
+  let bestTs = -Infinity;
+  for (const e of history) {
+    const ts = Number(e.timestamp) * 1000;
+    if (Number.isFinite(ts) && ts <= t && ts > bestTs) {
+      best = e;
+      bestTs = ts;
+    }
+  }
+  return best && t - bestTs <= 2 * DAY ? best : null;
+};
+
+/**
+ * Stamp for a back-dated trade: the call as of the last daily bar closed
+ * before it, seeing only bars up to then. When the Fear & Greed reading for
+ * that day is known it is fed in, as it would have been live.
+ */
 export const reconstructStamp = (
   daily: OHLCVCandle[],
   tradeTime: number,
-  config: SignalConfig = DEFAULT_CONFIG
+  config: SignalConfig = DEFAULT_CONFIG,
+  fearGreedHistory: FearGreedEntry[] = []
 ): SignalStamp | null => {
-  const c = callOnDay(daily, lastClosedIndex(daily, tradeTime), config);
-  return c
-    ? {
-        action: c.action,
-        targetAllocation: c.targetAllocation,
-        dcaMultiplier: c.dcaMultiplier,
-        conviction: c.conviction,
-        regimeScore: c.regimeScore,
-        fearGreed: null,
-        source: 'reconstructed',
-      }
-    : null;
+  const i = lastClosedIndex(daily, tradeTime);
+  if (i < REPLAY_WARMUP - 1) return null;
+  const window = daily.slice(Math.max(0, i - WINDOW + 1), i + 1);
+  const indicators = computeIndicators(window);
+  const fg = fearGreedAt(fearGreedHistory, tradeTime);
+  const s = computeSignal({ indicators, currentPrice: daily[i]!.close, fearGreed: fg?.value ?? null, config });
+  return stampFrom(s, indicators, fg?.value ?? null, fg?.value_classification ?? null, 'reconstructed');
 };
 
 // ===== Scoring =====

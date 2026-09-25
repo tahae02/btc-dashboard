@@ -1,4 +1,4 @@
-import type { OHLCVCandle, FearGreedData, OnChainData, PriceData, Timeframe } from '../types';
+import type { OHLCVCandle, FearGreedData, FearGreedEntry, OnChainData, PriceData, Timeframe } from '../types';
 import { estimateCirculatingSupply } from './supply';
 import { ENDPOINTS } from './endpoints';
 import { fetchJSON, FetchError, describeFetchError, type FetchOptions } from './http';
@@ -112,6 +112,19 @@ export const fetchFearGreed = async (): Promise<FearGreedData> => {
       timestamp: e?.timestamp ?? '0',
     })),
   };
+};
+
+/** Every Fear & Greed reading on record, newest first. */
+export const fetchFearGreedHistory = async (): Promise<FearGreedEntry[]> => {
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.fearGreedHistory, EXTRA);
+  const entries = Array.isArray(data?.data) ? data.data : [];
+  return entries
+    .map((e: any) => ({
+      value: Number(e?.value),
+      value_classification: String(e?.value_classification ?? ''),
+      timestamp: String(e?.timestamp ?? ''),
+    }))
+    .filter((e: FearGreedEntry) => Number.isFinite(e.value) && Number(e.timestamp) > 0);
 };
 
 export const fetchOnChainData = async (): Promise<OnChainData> => {
