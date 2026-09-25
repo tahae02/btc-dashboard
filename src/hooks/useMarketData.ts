@@ -22,6 +22,7 @@ export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe:
   const [onChain, setOnChain] = useState<OnChainData>(EMPTY_ONCHAIN);
   const [btcDominance, setBtcDominance] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
@@ -70,6 +71,7 @@ export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe:
       if (!alive()) return;
       latest.current.price = v;
       hasLive.current = true;
+      setIsLive(true);
       setPrice(v);
       setLastUpdated(new Date());
     });
@@ -163,6 +165,7 @@ export const useMarketData = (refreshInterval: RefreshInterval, signalTimeframe:
     onChain,
     btcDominance,
     isLoading,
+    isLive,
     lastUpdated,
     error,
     errorKind,

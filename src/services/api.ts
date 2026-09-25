@@ -70,11 +70,12 @@ export const fetchPriceData = async (): Promise<PriceData> => {
   };
 };
 
-export const fetchOHLCV = async (timeframe: Timeframe, _currency: string = 'usd'): Promise<OHLCVCandle[]> => {
-  // Kraken OHLC (XBTUSD). Charts are always denominated in USD; the GBP toggle
-  // only affects the headline price display, not the candle series.
+export const fetchOHLCV = async (timeframe: Timeframe, quote: 'USD' | 'GBP' = 'USD'): Promise<OHLCVCandle[]> => {
+  // Kraken OHLC. Charts and signals are always denominated in USD; the GBP
+  // toggle only affects the headline price display. GBP candles are fetched
+  // only to price back-dated trades logged in pounds.
   // Row shape: [time(s), open, high, low, close, vwap, volume, count].
-  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ohlc(timeframe), ESSENTIAL);
+  const data = await fetchJSON<Record<string, any>>(ENDPOINTS.ohlc(timeframe, quote), quote === 'USD' ? ESSENTIAL : EXTRA);
   const rows = firstResult<any[][]>(data?.result) ?? [];
   return rows.map((c) => ({
     time: Number(c?.[0] ?? 0) * 1000,

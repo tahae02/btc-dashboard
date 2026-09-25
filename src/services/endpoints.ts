@@ -28,7 +28,10 @@ export const KRAKEN_INTERVAL: Record<Timeframe, number> = {
 
 export const ENDPOINTS = {
   ticker: `${KRAKEN_BASE}/Ticker?pair=XBTUSD,XBTGBP`,
-  ohlc: (tf: Timeframe) => `${KRAKEN_BASE}/OHLC?pair=XBTUSD&interval=${KRAKEN_INTERVAL[tf]}`,
+  // Charts and signals use USD. GBP is only fetched to price back-dated
+  // trades logged in pounds.
+  ohlc: (tf: Timeframe, quote: 'USD' | 'GBP' = 'USD') =>
+    `${KRAKEN_BASE}/OHLC?pair=XBT${quote}&interval=${KRAKEN_INTERVAL[tf]}`,
   dominance: `${PAPRIKA_BASE}/global`,
   fearGreed: `${ALTERNATIVE_ME_BASE}/fng/?limit=31&format=json`,
   hashrate: `${MEMPOOL_BASE}/v1/mining/hashrate/1m`,

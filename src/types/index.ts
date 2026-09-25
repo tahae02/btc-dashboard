@@ -72,6 +72,11 @@ export interface MarketData {
   onChain: OnChainData;
   btcDominance: number | null;
   isLoading: boolean;
+  /**
+   * True once a live price has arrived this session. Until then, what is on
+   * screen may be the saved snapshot from a previous launch.
+   */
+  isLive: boolean;
   lastUpdated: Date | null;
   error: string | null;
   /**

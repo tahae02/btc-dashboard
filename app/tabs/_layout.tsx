@@ -30,7 +30,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          // 'Dashboard' is cut to 'Dashbo...' once there are six tabs.
+          title: 'Home',
           tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
           tabBarButtonTestID: 'tab-dashboard',
         }}
@@ -49,6 +50,14 @@ export default function TabsLayout() {
           title: 'Signals',
           tabBarIcon: ({ color, size }) => <Ionicons name="pulse" size={size} color={color} />,
           tabBarButtonTestID: 'tab-signals',
+        }}
+      />
+      <Tabs.Screen
+        name="portfolio"
+        options={{
+          title: 'Portfolio',
+          tabBarIcon: ({ color, size }) => <Ionicons name="wallet" size={size} color={color} />,
+          tabBarButtonTestID: 'tab-portfolio',
         }}
       />
       <Tabs.Screen

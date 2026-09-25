@@ -4,6 +4,7 @@ import { Slot } from 'expo-router';
 import { PaperProvider, MD3DarkTheme } from 'react-native-paper';
 import { SettingsProvider } from '../src/context/SettingsContext';
 import { DataProvider } from '../src/context/DataContext';
+import { JournalProvider } from '../src/context/JournalContext';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync();
@@ -32,8 +33,10 @@ export default function RootLayout() {
     <PaperProvider theme={paperTheme}>
       <SettingsProvider>
         <DataProvider>
-          <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
-          <Slot />
+          <JournalProvider>
+            <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
+            <Slot />
+          </JournalProvider>
         </DataProvider>
       </SettingsProvider>
     </PaperProvider>

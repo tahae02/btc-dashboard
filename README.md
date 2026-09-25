@@ -51,6 +51,19 @@ Volatility (ATR) and support/resistance are shown as **context** and explicitly 
 
 ---
 
+## Portfolio and track record
+
+**Portfolio tab.** Log each buy or sell: what you spent (fees included), when, and optionally the exact BTC your exchange credited. Leave BTC blank and it is worked out from the market price at that moment, in pounds or dollars. Each trade is stamped with what the signal was saying at the time, frozen so that later engine changes never rewrite what you acted on. Back-dated trades get the signal replayed from the daily history for that day. The tab shows holdings, average cost, P&L (average-cost method), how the price moved 1, 7, 30 and 90 days after each trade, and your buys grouped by the signal they were made on. Trades stay on the phone; export a backup or CSV from the bottom of the tab.
+
+**Track record (Signals tab).** Two records, scored the same way:
+
+- *Replay.* The engine re-run on each of the ~500 scorable days in the ~720 days of history the app downloads, seeing only prices up to that day. For each tier: the average BTC move 7, 30 and 90 days later, against an average day. It also checks whether scaling weekly buys by the DCA multiplier bought more cheaply than a flat amount, and how often price actually landed inside the 24h and 7d ranges, which claim about two thirds.
+- *Recorded on this phone.* The signal the app actually showed you, saved once a day as you use it. This is the honest out-of-sample record, and it fills slowly.
+
+The engine does **not** retune itself from either record. Two years of daily data holds fewer than two dozen independent months, and a month's BTC move is routinely ±20%, so a self-tuning engine would fit the noise and look like it was improving while getting worse. Use the record to spot a tier that consistently underperforms, then test a change with `yarn backtest --split` on a decade of real data before keeping it.
+
+---
+
 ## Running the backtest
 
 This is the part that tells you whether any of it works.
@@ -196,7 +209,7 @@ The app's banner now gives the reason too, e.g. `(HTTP 403)`, `(timed out after 
 ## Testing
 
 ```bash
-yarn test          # 123 tests, no install required
+yarn test          # 164 tests, no install required
 yarn test:watch
 yarn typecheck
 ```
@@ -208,6 +221,7 @@ Tests run on Node's built-in runner, so they need no dependencies at all. They c
 - signal engine behaviour (regime dominance, all tiers reachable, conviction is real information)
 - the no-lookahead guarantee in the backtester
 - metrics (IRR, drawdown, contributions not counted as performance)
+- the trade journal (average-cost P&L, form parsing, outcomes) and the track record, including that replayed calls ignore the future
 
 There are no component tests, and therefore no jest. Adding them later means adding `jest-expo` and `@testing-library/react-native` back.
 
@@ -216,10 +230,10 @@ There are no component tests, and therefore no jest. Adding them later means add
 ## Project layout
 
 ```
-src/services/      pure logic, no React — indicators, signal engine, candles, supply, settings
+src/services/      pure logic, no React: indicators, signal engine, candles, supply, settings, journal, track record
 src/hooks/         thin React wrappers over the above
-src/context/       settings + market data providers
-app/tabs/          the four screens
+src/context/       settings, market data and journal providers
+app/tabs/          the six screens
 backtest/          harness, strategies, metrics, data loading, CLI
 __tests__/         logic tests (node:test)
 ```

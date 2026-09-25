@@ -9,6 +9,7 @@ import { useSignalEngine } from '../../src/hooks/useSignalEngine';
 import { GlassCard } from '../../src/components/GlassCard';
 import { SignalBadge } from '../../src/components/SignalBadge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
+import { TrackRecordCard } from '../../src/components/TrackRecordCard';
 import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../../src/constants/theme';
 import type { IndicatorReading, IndicatorFamily } from '../../src/types';
 
@@ -199,6 +200,10 @@ export default function SignalsScreen() {
             )}
           </>
         )}
+
+        {/* Runs on daily bars whatever the signal timeframe, since that is
+            what the engine's calls are scored against. */}
+        <TrackRecordCard />
 
         <View style={{ height: 32 }} />
       </ScrollView>
