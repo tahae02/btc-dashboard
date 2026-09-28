@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Indicators, SignalResult, Settings, SignalConfig } from '../types';
-import { computeSignal, DEFAULT_CONFIG } from '../services/signalEngine';
+import { Indicators, SignalResult, Settings } from '../types';
+import { computeSignal, configFromSettings } from '../services/signalEngine';
 
 type SignalSettings = Partial<Pick<Settings, 'rsiOverbought' | 'rsiOversold' | 'stretchWeight'>>;
 
@@ -11,16 +11,8 @@ interface SignalInput {
   settings?: SignalSettings;
 }
 
-/**
- * User settings folded into the engine config. Shared so the track record
- * replays the engine exactly as the live screens run it.
- */
-export const configFromSettings = (settings?: SignalSettings): SignalConfig => ({
-  ...DEFAULT_CONFIG,
-  rsiOverbought: settings?.rsiOverbought ?? DEFAULT_CONFIG.rsiOverbought,
-  rsiOversold: settings?.rsiOversold ?? DEFAULT_CONFIG.rsiOversold,
-  stretchWeight: settings?.stretchWeight ?? DEFAULT_CONFIG.stretchWeight,
-});
+// Lives with the engine so the snapshot can use it without React.
+export { configFromSettings };
 
 /**
  * Thin wrapper over the pure engine in `src/services/signalEngine.ts`.

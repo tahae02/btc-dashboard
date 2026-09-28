@@ -16,14 +16,23 @@ Tabs: Home, Chart, Signals, Portfolio, On-Chain, Settings. The first tab is labe
 
 ## Layout and conventions
 
-- `src/services/`: pure logic, no React or React Native imports, so it can be tested directly. Put new logic here and test it.
+- `src/services/`: pure logic, no React or React Native imports, so it can be tested directly. Put new logic here and test it. The one exception is `api.ts`, which adds the web-only rule on top of `marketApi.ts`.
 - `src/hooks/`, `src/context/`: thin React wrappers. `src/components/`: shared UI.
-- `__tests__/`: Node's built-in test runner. `yarn test` needs no install. `yarn typecheck` needs dependencies.
+- `__tests__/`: Node's built-in test runner. The tests need no dependencies (though Yarn itself wants `yarn install` first on a fresh clone; see below). `yarn typecheck` needs dependencies.
 - Glossary text for the (i) buttons lives in `src/services/glossary.ts`. Every Signals reading carries a `plain` line and a `term` pointing at a glossary entry, and a test enforces both.
+
+## Snapshot and /btc-brief
+
+- `yarn snapshot` (or, with nothing installed, `node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/snapshot.ts`) prints the app's full reading from live data as plain text: UK time, price in USD and GBP, Fear & Greed, every indicator, each signal layer with the rule and threshold behind it, the overall advice, other timeframes and on-chain. Options: `--timeframe 1H|4H|1D|1W`, `--stretch-weight`, `--currency`. Exit code 1 when the price or the signal timeframe's candles failed; the report still prints what loaded.
+- It must never calculate anything itself. `scripts/snapshot.ts` fetches through `src/services/marketApi.ts` (the app's fetchers, split out of `api.ts` so Node can import them without React Native) and `src/services/marketReport.ts` runs the app's own `dropIncompleteCandle`, `computeIndicators`, `computeSignal` and `describeMarket`. Thresholds it prints come from constants the engine exports (`STRETCH_RANGES`, `MOMENTUM_RANGES`, `ACTION_TIERS`, `READING_DEADBAND`), and the allocation breakdown from `SignalResult.allocationParts`. If you change a threshold in the engine, change it there, not in the report.
+- It cannot read the phone's settings. Defaults match the app's defaults; pass flags if the owner has changed theirs.
+- No source needs an API key. If one is ever added, read it from an environment variable (`.env` is git-ignored) and never commit it.
+- Claude Code cloud sessions block all four data hosts by default (HTTP 403 from the egress proxy). To run the snapshot there, add `api.kraken.com`, `api.alternative.me`, `api.coinpaprika.com` and `mempool.space` to the environment's allowed domains (environment menu in the session title bar, Edit, Network access). It works anywhere else with ordinary internet access.
+- `.claude/commands/btc-brief.md` is the owner's `/btc-brief [amount in GBP]` command: it runs the snapshot, researches news, macro, ETF flows, derivatives and scheduled events, then gives a short-term call (verdict, entry, split and limit orders, probabilities, levels, invalidation, confidence). The owner asked for it to be direct and without disclaimers. It is a separate short-term view, and does not change the app's own stance that its signal is a long-term allocation, not a prediction.
 
 ## Checks before pushing
 
-1. `yarn typecheck` and `yarn test`.
+1. `yarn typecheck` and `yarn test`. In a cloud session Corepack cannot download Yarn from repo.yarnpkg.com; prefix commands with `COREPACK_NPM_REGISTRY=https://registry.npmjs.org` and it fetches Yarn from npm instead. On a fresh clone Yarn also refuses to run any script, `yarn test` included, until `yarn install` has run, because the committed lockfile is stale.
 2. `yarn expo export --platform android` (the same bundling step CI runs; it catches missing modules that typecheck misses).
 3. For UI changes: export the web build and drive it with Playwright at phone width (about 400px). The cloud sandbox cannot reach Kraken, CoinPaprika or Alternative.me, so intercept those requests and answer them with synthetic candles and prices. Chromium is at `/opt/pw-browsers`.
 

@@ -49,6 +49,7 @@
  * Every parameter lives in `DEFAULT_CONFIG` so the backtester can sweep them.
  */
 import type {
+  Settings,
   Indicators,
   SignalResult,
   IndicatorReading,
@@ -103,6 +104,52 @@ export const DEFAULT_CONFIG: SignalConfig = {
   rsiOverbought: 70,
   rsiOversold: 30,
 };
+
+/**
+ * User settings folded into the engine config. Shared so the screens, the
+ * track record and the headless snapshot all run the engine the same way.
+ */
+export const configFromSettings = (
+  settings?: Partial<Pick<Settings, 'rsiOverbought' | 'rsiOversold' | 'stretchWeight'>>
+): SignalConfig => ({
+  ...DEFAULT_CONFIG,
+  rsiOverbought: settings?.rsiOverbought ?? DEFAULT_CONFIG.rsiOverbought,
+  rsiOversold: settings?.rsiOversold ?? DEFAULT_CONFIG.rsiOversold,
+  stretchWeight: settings?.stretchWeight ?? DEFAULT_CONFIG.stretchWeight,
+});
+
+/**
+ * The fixed ranges each reading is mapped from onto -1..+1 (clamped outside
+ * them). Exported so the snapshot report can state the exact rule behind each
+ * reading instead of restating the numbers by hand.
+ */
+export const STRETCH_RANGES = {
+  rsi: [30, 70],
+  stochRSI: [20, 80],
+  /** Bollinger %B as a fraction: 0 = lower band, 1 = upper band. */
+  percentB: [0, 1],
+} as const;
+
+export const MOMENTUM_RANGES = {
+  /** MACD histogram as a % of price, so it means the same at $8k and $80k. */
+  macdHistPctOfPrice: [-1.5, 1.5],
+  /** (EMA 9 - EMA 21) / EMA 21, in %. */
+  emaSpreadPct: [-3, 3],
+} as const;
+
+/** A family score beyond this reads as BULLISH or BEARISH on the Signals tab. */
+export const READING_DEADBAND = 0.15;
+/** The same for the regime row, applied to regime score / 3. */
+export const REGIME_READING_DEADBAND = 0.3;
+
+/** Advice tiers, highest first: the first whose minimum the allocation meets. */
+export const ACTION_TIERS: { action: Action; minAllocation: number }[] = [
+  { action: 'ACCUMULATE_STRONG', minAllocation: 0.85 },
+  { action: 'ACCUMULATE', minAllocation: 0.65 },
+  { action: 'HOLD', minAllocation: 0.4 },
+  { action: 'REDUCE', minAllocation: 0.2 },
+  { action: 'EXIT', minAllocation: 0 },
+];
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
@@ -181,15 +228,15 @@ export const computeStretch = (ind: Indicators, currentPrice: number): FamilySco
 
   if (ind?.rsi) {
     // 30/70 is the conventional stretch band, so map it onto the full -1..1.
-    parts.push({ name: 'RSI', raw: ind.rsi.value, normalised: normalise(ind.rsi.value, 30, 70) });
+    parts.push({ name: 'RSI', raw: ind.rsi.value, normalised: normalise(ind.rsi.value, ...STRETCH_RANGES.rsi) });
   }
   if (ind?.stochRSI) {
-    parts.push({ name: 'StochRSI', raw: ind.stochRSI.k, normalised: normalise(ind.stochRSI.k, 20, 80) });
+    parts.push({ name: 'StochRSI', raw: ind.stochRSI.k, normalised: normalise(ind.stochRSI.k, ...STRETCH_RANGES.stochRSI) });
   }
   if (ind?.bollingerBands && currentPrice > 0) {
     const { upper, lower } = ind.bollingerBands;
     const pctB = upper !== lower ? (currentPrice - lower) / (upper - lower) : 0.5;
-    parts.push({ name: 'Bollinger %B', raw: pctB * 100, normalised: normalise(pctB, 0, 1) });
+    parts.push({ name: 'Bollinger %B', raw: pctB * 100, normalised: normalise(pctB, ...STRETCH_RANGES.percentB) });
   }
 
   const score = parts.length ? parts.reduce((a, p) => a + p.normalised, 0) / parts.length : 0;
@@ -204,11 +251,11 @@ export const computeMomentum = (ind: Indicators, currentPrice: number): FamilySc
   if (ind?.macd && currentPrice > 0) {
     // Histogram scaled by price so the number means the same at $8k and $80k.
     const hist = (ind.macd.histogram / currentPrice) * 100;
-    parts.push({ name: 'MACD histogram', raw: ind.macd.histogram, normalised: normalise(hist, -1.5, 1.5) });
+    parts.push({ name: 'MACD histogram', raw: ind.macd.histogram, normalised: normalise(hist, ...MOMENTUM_RANGES.macdHistPctOfPrice) });
   }
   if (ind?.ema9 != null && ind?.ema21 != null && ind.ema21 > 0) {
     const spread = ((ind.ema9 - ind.ema21) / ind.ema21) * 100;
-    parts.push({ name: 'EMA 9/21 spread', raw: spread, normalised: normalise(spread, -3, 3) });
+    parts.push({ name: 'EMA 9/21 spread', raw: spread, normalised: normalise(spread, ...MOMENTUM_RANGES.emaSpreadPct) });
   }
 
   const score = parts.length ? parts.reduce((a, p) => a + p.normalised, 0) / parts.length : 0;
@@ -217,13 +264,8 @@ export const computeMomentum = (ind: Indicators, currentPrice: number): FamilySc
 
 // ===== Combination =====
 
-const actionForAllocation = (alloc: number): Action => {
-  if (alloc >= 0.85) return 'ACCUMULATE_STRONG';
-  if (alloc >= 0.65) return 'ACCUMULATE';
-  if (alloc >= 0.40) return 'HOLD';
-  if (alloc >= 0.20) return 'REDUCE';
-  return 'EXIT';
-};
+const actionForAllocation = (alloc: number): Action =>
+  ACTION_TIERS.find((t) => alloc >= t.minAllocation)?.action ?? 'EXIT';
 
 export const ACTION_LABEL: Record<Action, string> = {
   ACCUMULATE_STRONG: 'ACCUMULATE HARD',
@@ -307,6 +349,7 @@ export const computeSignal = ({
     action,
     actionLabel: ACTION_LABEL[action],
     targetAllocation,
+    allocationParts: { base, stretch: stretchAdj, momentum: momentumAdj, sentiment: sentimentAdj },
     // A multiplier on the user's normal periodic contribution. 0.6 allocation
     // is the neutral anchor, so a neutral market leaves DCA untouched at 1.0x.
     dcaMultiplier: Math.round(clamp(targetAllocation / 0.6, 0, 2) * 10) / 10,
@@ -320,7 +363,7 @@ export const computeSignal = ({
 
 // ===== Human-readable breakdown =====
 
-const directionOf = (n: number, deadband = 0.15): SignalDirection =>
+const directionOf = (n: number, deadband = READING_DEADBAND): SignalDirection =>
   n > deadband ? 'BULLISH' : n < -deadband ? 'BEARISH' : 'NEUTRAL';
 
 const buildReadings = (
@@ -338,7 +381,7 @@ const buildReadings = (
     name: 'Market regime',
     family: 'REGIME',
     value: regime.regime,
-    signal: directionOf(regime.score / 3, 0.3),
+    signal: directionOf(regime.score / 3, REGIME_READING_DEADBAND),
     weight: 'Primary',
     term: 'regime',
     plain:
