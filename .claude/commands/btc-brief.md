@@ -1,27 +1,39 @@
 ---
-description: Short-term BTC buy-timing brief. Runs the app's snapshot, researches the last 24 to 72 hours, and gives a straight call.
-argument-hint: "[amount in GBP, optional]"
-allowed-tools: Bash(yarn snapshot:*), Bash(yarn snapshot), Bash(yarn probe), Bash(node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/snapshot.ts:*), WebSearch, WebFetch
+description: Short-term BTC buy-timing brief. Uses a snapshot pasted from the app (or runs one), researches the last 24 to 72 hours, and gives a straight call.
+argument-hint: "[amount in GBP, optional] then paste the app's snapshot below it (optional)"
+allowed-tools: Bash(yarn snapshot:*), Bash(yarn snapshot), Bash(yarn probe), Bash(node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/snapshot.ts:*), Bash(TZ=Europe/London date:*), WebSearch, WebFetch
 ---
 
-Amount the owner is thinking of buying, in GBP: `$ARGUMENTS`
-If that is blank, give the split as percentages of "your amount" instead of pounds.
+What the owner sent with the command: `$ARGUMENTS`
+
+- The amount they are thinking of buying, in GBP, is the number at the start (for example `500` or `£500`). If there is none, give the split as percentages of "your amount" instead of pounds.
+- They may also have pasted a snapshot exported from the app (Settings, Share with Claude). It is plain text starting `BTC SNAPSHOT`, and it may be in the arguments above, in the same message, in an attached file, or in a message just before this one. Look in all of those.
 
 The owner is in the UK, buys Bitcoin in pounds on Coinbase, and is not a trader. Write plain English, UK spelling, and never use an em dash anywhere in the reply.
 
 ## a) Snapshot
 
-From the repository root, run:
+First run `TZ=Europe/London date` to know the time now.
+
+**If the owner pasted a snapshot from the app**, use it as the snapshot. It was made on their phone with the app's own code, data and settings, so it is exactly what the app shows. Do not reprint it. Instead show a short summary in a code block: when it was taken and how old it is, the price in USD and GBP, Fear & Greed, the app's advice and target allocation, and any sources that failed.
+- If it is more than 15 minutes old, get the current BTC price in USD and GBP from a web source (cite it with its time) and say how far the price has moved since the snapshot. Use the current price for entry zones and limit orders, and the snapshot for the indicators and signals.
+- If it is more than 2 hours old, also run the live snapshot below. If that works, use the live one and say so; if not, carry on with the pasted one and flag its age next to every figure that depends on it.
+
+**If there is no pasted snapshot**, from the repository root run:
 
 ```
 node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/snapshot.ts
 ```
 
-This is what `yarn snapshot` runs. Calling Node directly needs nothing installed (only Node 22.6 or later), whereas Yarn refuses to run scripts on a fresh clone until `yarn install` has run. It prints the BTC Analyst app's own reading: live price in USD and GBP, Fear & Greed, every indicator on closed 1D bars, every layer of the signal engine with the rule and threshold behind it, the app's overall advice, and the same indicators on 1H, 4H and 1W.
+This is what `yarn snapshot` runs. Calling Node directly needs nothing installed (only Node 22.6 or later), whereas Yarn refuses to run scripts on a fresh clone until `yarn install` has run. It prints the BTC Analyst app's own reading: live price in USD and GBP, Fear & Greed, every indicator on closed bars of the signal timeframe, every layer of the signal engine with the rule and threshold behind it, the app's overall advice, and the same indicators on the other timeframes. It uses the app's default settings, not the owner's.
 
 Show the owner the output in a single code block, unedited.
 
-- If it exits non-zero or any source says FAIL, say in one line which sources failed and quote the "How to fix" line it printed. Carry on with whatever loaded. If the price itself failed, get the current BTC price in USD and GBP from a web source, cite it with its time, and say the app's signals are missing, which caps confidence at low.
+- If it exits non-zero or any source says FAIL, say in one line which sources failed and quote the "How to fix" line it printed. Carry on with whatever loaded. If the price itself failed, get the current BTC price in USD and GBP from a web source, cite it with its time, and say the app's signals are missing, which caps confidence at low. End the reply with one line telling the owner that next time they can export a snapshot from the app (Settings, Share with Claude, Share snapshot) and paste it under the command.
+
+Either way:
+
+- If Fear & Greed failed in the snapshot (it often does on the owner's phone), look up today's reading on the web and cite it. The app's engine ran without it; say whether it would have changed the advice (it only counts at 20 or below, or 80 or above).
 - The app's signal is an allocation for a long-term buyer, not a price prediction, and its 24h and 7d ranges are volatility bands (ATR), not forecasts. Treat them that way and never call them predictions.
 - The snapshot's supports and resistances come from closed bars. If it says the live price is already through a level, use the next one.
 

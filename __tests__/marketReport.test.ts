@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReport, analyseTimeframe, formatUkTime, fixFor, type ReportInput } from '../src/services/marketReport';
+import { buildReport, analyseTimeframe, formatUkTime, fixFor, collectSnapshot, summariseSources, type ReportInput, type SnapshotFetchers } from '../src/services/marketReport';
+import { FetchError } from '../src/services/http';
 import { computeIndicators } from '../src/services/indicators';
 import { dropIncompleteCandle } from '../src/services/candles';
 import { computeSignal, configFromSettings } from '../src/services/signalEngine';
@@ -139,5 +140,47 @@ describe('allocation breakdown', () => {
       const sum = s.allocationParts.base + s.allocationParts.stretch + s.allocationParts.momentum + s.allocationParts.sentiment;
       assert.ok(Math.abs(Math.min(1, Math.max(0, sum)) - s.targetAllocation) < 1e-12);
     }
+  });
+});
+
+describe('collectSnapshot (shared by the phone export and yarn snapshot)', () => {
+  const candles = dailyCandles();
+  const ok: SnapshotFetchers = {
+    fetchPriceData: async () => priceFor(candles),
+    fetchOHLCV: async () => candles,
+    fetchBTCDominance: async () => 57,
+    fetchFearGreed: async () => fearGreed,
+    fetchOnChainData: async () => ({ hashRate: 0, difficulty: null, mempool: null, fees: null }),
+  };
+
+  test('records every source, and the report says it came from the phone', async () => {
+    const { input, coreFailed } = await collectSnapshot(
+      { ...ok, fetchFearGreed: async () => { throw new FetchError('HTTP 403', 403); } },
+      { ...DEFAULT_SETTINGS, stretchWeight: 0.3 },
+      { origin: 'app', now: () => NOW }
+    );
+    assert.equal(coreFailed, false);
+    assert.equal(input.sources.length, 8);
+    assert.equal(input.fearGreed, null);
+    assert.equal(summariseSources(input.sources), '7 of 8 sources loaded. Failed: Fear & Greed (Alternative.me) (HTTP 403).');
+
+    const text = buildReport(input);
+    assert.match(text, /Exported from the BTC Analyst app on the owner's phone/);
+    assert.match(text, /stretch weight 0\.3/);
+    // Advice meant for a phone, not for someone with the repository.
+    assert.match(text, /Try another network/);
+    assert.ok(!text.includes('yarn probe'));
+  });
+
+  test('flags a missing price or signal-timeframe history as a core failure', async () => {
+    const noPrice = await collectSnapshot({ ...ok, fetchPriceData: async () => { throw new Error('x'); } }, DEFAULT_SETTINGS, { origin: 'cli' });
+    assert.equal(noPrice.coreFailed, true);
+    const no4h = await collectSnapshot(
+      { ...ok, fetchOHLCV: async (tf) => { if (tf === '4H') throw new Error('x'); return candles; } },
+      DEFAULT_SETTINGS,
+      { origin: 'cli' }
+    );
+    assert.equal(no4h.coreFailed, false, 'only the signal timeframe (1D here) is core');
+    assert.equal(summariseSources(no4h.input.sources).startsWith('7 of 8'), true);
   });
 });

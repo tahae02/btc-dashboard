@@ -222,12 +222,14 @@ yarn snapshot --timeframe 4H         # the signal on another timeframe
 yarn snapshot --stretch-weight 0.2   # match a setting you changed in the app
 ```
 
-Fetches live data and prints a plain-text report: UK time, price in USD and GBP, Fear & Greed, every indicator, every layer of the signal with the rule and threshold behind it, the app's overall advice and plain-English summary, the same indicators on 1H, 4H and 1W, and on-chain data. It runs the app's own fetchers, indicators and engine (`src/services/marketApi.ts` and `src/services/marketReport.ts`), so with the same settings the numbers match the app. No API keys are needed. If a source fails, the report says which, why, and how to fix it. The `/btc-brief` Claude Code command (`.claude/commands/btc-brief.md`) starts from this report.
+Fetches live data and prints a plain-text report: UK time, price in USD and GBP, Fear & Greed, every indicator, every layer of the signal with the rule and threshold behind it, the app's overall advice and plain-English summary, the same indicators on 1H, 4H and 1W, and on-chain data. The app can produce the same report from your phone: **Settings > Share with Claude > Share snapshot** fetches fresh data and opens the share sheet with the text, using your settings. Paste it under `/btc-brief` when the command can't reach the data sources itself.
+
+It runs the app's own fetchers, indicators and engine (`src/services/marketApi.ts` and `src/services/marketReport.ts`), so with the same settings the numbers match the app. No API keys are needed. If a source fails, the report says which, why, and how to fix it. The `/btc-brief` Claude Code command (`.claude/commands/btc-brief.md`) starts from this report.
 
 ## Testing
 
 ```bash
-yarn test          # 199 tests, no install required
+yarn test          # 201 tests, no install required
 yarn test:watch
 yarn typecheck
 ```

@@ -39,6 +39,7 @@ import {
 import { describeMarket, ACTION_PLAIN } from './plainEnglish';
 import { isFearGreedFresh } from './snapshot';
 import { ENDPOINTS } from './endpoints';
+import { describeFetchError } from './http';
 
 export const REPORT_TIMEFRAMES: Timeframe[] = ['1H', '4H', '1D', '1W'];
 
@@ -51,8 +52,12 @@ export interface SourceOutcome {
   error: string | null;
 }
 
+/** Where the report was made: the phone app's export, or `yarn snapshot`. */
+export type ReportOrigin = 'app' | 'cli';
+
 export interface ReportInput {
   now: number;
+  origin?: ReportOrigin;
   settings: Settings;
   price: PriceData | null;
   candles: Partial<Record<Timeframe, OHLCVCandle[]>>;
@@ -173,17 +178,19 @@ const isRefusal = (e: string | null): boolean => /HTTP 40[37]/.test(e ?? '');
  * What to do about a failed source. None of the app's sources need an API
  * key, so a failure is always the network, the provider, or a block.
  */
-export const fixFor = (s: SourceOutcome): string => {
+export const fixFor = (s: SourceOutcome, origin: ReportOrigin = 'cli'): string => {
   const e = s.error ?? '';
+  // `yarn probe` only helps on a computer with the repository.
+  const probe = origin === 'cli' ? ' `yarn probe` tests each source on its own.' : '';
   if (isRefusal(e)) {
-    return `${s.host} refused the request (${e}). Usually a firewall, VPN, ad or DNS blocker, or the provider blocking this IP range. Try another network, or run \`yarn probe\` for detail.`;
+    return `${s.host} refused the request (${e}). Usually a firewall, VPN, ad or DNS blocker, or the provider blocking this IP range. Try another network (for example mobile data instead of Wi-Fi).${probe}`;
   }
-  if (/HTTP 429/.test(e)) return `${s.host} is rate limiting (${e}). Wait a minute and run it again.`;
+  if (/HTTP 429/.test(e)) return `${s.host} is rate limiting (${e}). Wait a minute and try again.`;
   if (/HTTP 5\d\d/.test(e)) return `${s.host} is having an outage (${e}). Try again later.`;
   if (/timed out|could not connect|fetch failed|ENOTFOUND|ECONN/.test(e)) {
-    return `${s.host} could not be reached (${e}). Check the connection, DNS or any blocker; \`yarn probe\` tests each source on its own.`;
+    return `${s.host} could not be reached (${e}). Check the connection, DNS or any blocker.${probe}`;
   }
-  return `${s.host} failed (${e}). Run \`yarn probe\` to see what it returned.`;
+  return `${s.host} failed (${e}).${probe}`;
 };
 
 // ===== Sections =====
@@ -209,7 +216,7 @@ const statusSection = (input: ReportInput): string[] => {
           '(or choose a broader access level).'
       );
     }
-    for (const s of failed) if (!blocked.includes(s.host)) fixes.add(fixFor(s));
+    for (const s of failed) if (!blocked.includes(s.host)) fixes.add(fixFor(s, input.origin));
     for (const f of fixes) out.push(`  - ${f}`);
   }
   return out;
@@ -479,7 +486,9 @@ export const buildReport = (input: ReportInput): string => {
 
   const lines: string[] = [
     `BTC SNAPSHOT  ${formatUkTime(input.now)} (UK time)`,
-    `Computed by the BTC Analyst app's own fetchers, indicators and signal engine. ` +
+    (input.origin === 'app'
+      ? "Exported from the BTC Analyst app on the owner's phone: its own data, settings, indicators and signal engine. "
+      : "Computed by the BTC Analyst app's own fetchers, indicators and signal engine. ") +
       `Settings: signal timeframe ${tf}, stretch weight ${input.settings.stretchWeight}, currency ${input.settings.currency}.`,
     '',
     ...statusSection(input),
@@ -510,4 +519,88 @@ export const buildReport = (input: ReportInput): string => {
   if (table.length) lines.push('', ...table);
   lines.push('', ...onChainSection(input.onChain));
   return lines.join('\n') + '\n';
+};
+
+// ===== Collecting the data =====
+
+/** The fetchers a snapshot needs. The app passes ./api, the script ./marketApi. */
+export interface SnapshotFetchers {
+  fetchPriceData: () => Promise<PriceData>;
+  fetchOHLCV: (timeframe: Timeframe) => Promise<OHLCVCandle[]>;
+  fetchBTCDominance: () => Promise<number>;
+  fetchFearGreed: () => Promise<FearGreedData>;
+  fetchOnChainData: () => Promise<OnChainData>;
+}
+
+export interface CollectedSnapshot {
+  input: ReportInput;
+  /** The price or the signal timeframe's candles failed, so there is no signal. */
+  coreFailed: boolean;
+}
+
+/**
+ * Fetch everything a report needs, all at once as the app does on refresh,
+ * and record each source's outcome. Shared by the phone's export and
+ * `yarn snapshot`, so the two cannot drift apart.
+ */
+export const collectSnapshot = async (
+  f: SnapshotFetchers,
+  settings: Settings,
+  opts: { origin: ReportOrigin; proxied?: boolean; now?: () => number }
+): Promise<CollectedSnapshot> => {
+  const [price, dominance, fearGreed, onChain, ...ohlc] = await Promise.allSettled([
+    f.fetchPriceData(),
+    f.fetchBTCDominance(),
+    f.fetchFearGreed(),
+    f.fetchOnChainData(),
+    ...REPORT_TIMEFRAMES.map((tf) => f.fetchOHLCV(tf)),
+  ]);
+
+  const outcome = (label: string, host: string, r: PromiseSettledResult<unknown>): SourceOutcome => ({
+    label,
+    host,
+    error: r.status === 'rejected' ? describeFetchError(r.reason) : null,
+  });
+  const value = <T>(r: PromiseSettledResult<T>): T | null => (r.status === 'fulfilled' ? r.value : null);
+
+  const candles: Partial<Record<Timeframe, OHLCVCandle[]>> = {};
+  REPORT_TIMEFRAMES.forEach((tf, i) => {
+    candles[tf] = value(ohlc[i] as PromiseSettledResult<OHLCVCandle[]>) ?? [];
+  });
+
+  const sources: SourceOutcome[] = [
+    outcome('Live price (Kraken)', SOURCE_HOSTS.kraken, price),
+    ...REPORT_TIMEFRAMES.map((tf, i) => outcome(`Price history ${tf} (Kraken)`, SOURCE_HOSTS.kraken, ohlc[i]!)),
+    outcome('Fear & Greed (Alternative.me)', SOURCE_HOSTS.alternative, fearGreed),
+    outcome('BTC dominance (CoinPaprika)', SOURCE_HOSTS.paprika, dominance),
+    outcome('On-chain (mempool.space)', SOURCE_HOSTS.mempool, onChain),
+  ];
+
+  const tfIndex = REPORT_TIMEFRAMES.indexOf(settings.signalTimeframe);
+  return {
+    input: {
+      now: (opts.now ?? Date.now)(),
+      origin: opts.origin,
+      settings,
+      price: value(price),
+      candles,
+      fearGreed: value(fearGreed),
+      btcDominance: value(dominance),
+      onChain: value(onChain),
+      sources,
+      proxied: opts.proxied,
+    },
+    coreFailed: price.status === 'rejected' || ohlc[tfIndex]?.status === 'rejected',
+  };
+};
+
+/** One line for the screen: "All 8 sources loaded" or which ones failed and why. */
+export const summariseSources = (sources: SourceOutcome[]): string => {
+  const failed = sources.filter((s) => s.error);
+  if (!failed.length) return `All ${sources.length} sources loaded.`;
+  return (
+    `${sources.length - failed.length} of ${sources.length} sources loaded. Failed: ` +
+    failed.map((s) => `${s.label} (${s.error})`).join(', ') +
+    '.'
+  );
 };
