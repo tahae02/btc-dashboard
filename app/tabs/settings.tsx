@@ -7,6 +7,7 @@ import { GlassCard } from '../../src/components/GlassCard';
 import { MIN_RSI_GAP } from '../../src/services/settings';
 import { useExplain } from '../../src/context/ExplainContext';
 import { InfoButton } from '../../src/components/InfoButton';
+import { SnapshotShareCard } from '../../src/components/SnapshotShareCard';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/constants/theme';
 import type { RefreshInterval, Currency, Timeframe } from '../../src/types';
@@ -193,6 +194,9 @@ export default function SettingsScreen() {
             <Text style={styles.resetText}>Reset all settings to defaults</Text>
           </Pressable>
         </GlassCard>
+
+        <Text style={styles.sectionHeader}>Share with Claude</Text>
+        <SnapshotShareCard />
 
         <Text style={styles.sectionHeader}>About</Text>
         <GlassCard>

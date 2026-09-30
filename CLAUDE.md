@@ -16,14 +16,24 @@ Tabs: Home, Chart, Signals, Portfolio, On-Chain, Settings. The first tab is labe
 
 ## Layout and conventions
 
-- `src/services/`: pure logic, no React or React Native imports, so it can be tested directly. Put new logic here and test it.
+- `src/services/`: pure logic, no React or React Native imports, so it can be tested directly. Put new logic here and test it. The one exception is `api.ts`, which adds the web-only rule on top of `marketApi.ts`.
 - `src/hooks/`, `src/context/`: thin React wrappers. `src/components/`: shared UI.
-- `__tests__/`: Node's built-in test runner. `yarn test` needs no install. `yarn typecheck` needs dependencies.
+- `__tests__/`: Node's built-in test runner. The tests need no dependencies (though Yarn itself wants `yarn install` first on a fresh clone; see below). `yarn typecheck` needs dependencies.
 - Glossary text for the (i) buttons lives in `src/services/glossary.ts`. Every Signals reading carries a `plain` line and a `term` pointing at a glossary entry, and a test enforces both.
+
+## Snapshot and /btc-brief
+
+- `yarn snapshot` (or, with nothing installed, `node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/snapshot.ts`) prints the app's full reading from live data as plain text: UK time, price in USD and GBP, Fear & Greed, every indicator, each signal layer with the rule and threshold behind it, the overall advice, other timeframes and on-chain. Options: `--timeframe 1H|4H|1D|1W`, `--stretch-weight`, `--currency`. Exit code 1 when the price or the signal timeframe's candles failed; the report still prints what loaded.
+- It must never calculate anything itself. `scripts/snapshot.ts` fetches through `src/services/marketApi.ts` (the app's fetchers, split out of `api.ts` so Node can import them without React Native) and `src/services/marketReport.ts` runs the app's own `dropIncompleteCandle`, `computeIndicators`, `computeSignal` and `describeMarket`. Thresholds it prints come from constants the engine exports (`STRETCH_RANGES`, `MOMENTUM_RANGES`, `ACTION_TIERS`, `READING_DEADBAND`), and the allocation breakdown from `SignalResult.allocationParts`. If you change a threshold in the engine, change it there, not in the report.
+- It cannot read the phone's settings. Defaults match the app's defaults; pass flags if the owner has changed theirs.
+- **The app can export the same report:** Settings > Share with Claude > Share snapshot (`src/components/SnapshotShareCard.tsx`). It fetches fresh data on the phone, with the phone's settings, and opens the share sheet with the text; the owner pastes it under `/btc-brief`. This exists because cloud sessions often cannot reach the data sources, and it is the most faithful copy of what the app shows. The phone export and the script both go through `collectSnapshot` in `marketReport.ts`, so they cannot drift apart. Text was chosen over screenshots or a zip: it carries every number exactly, pastes reliably into a Claude chat, and needs no new native modules. The status line under the button names any failed source with its reason, which should also finally show why Fear & Greed fails on the owner's phone.
+- No source needs an API key. If one is ever added, read it from an environment variable (`.env` is git-ignored) and never commit it.
+- Claude Code cloud sessions block all four data hosts by default (HTTP 403 from the egress proxy). To run the snapshot there, add `api.kraken.com`, `api.alternative.me`, `api.coinpaprika.com` and `mempool.space` to the environment's allowed domains (environment menu in the session title bar, Edit, Network access). It works anywhere else with ordinary internet access.
+- `.claude/commands/btc-brief.md` is the owner's `/btc-brief [amount in GBP]` command: it uses a snapshot pasted from the app if there is one (checking its age against the current price), otherwise runs the snapshot, researches news, macro, ETF flows, derivatives and scheduled events, then gives a short-term call (verdict, entry, split and limit orders, probabilities, levels, invalidation, confidence). The owner asked for it to be direct and without disclaimers. It is a separate short-term view, and does not change the app's own stance that its signal is a long-term allocation, not a prediction.
 
 ## Checks before pushing
 
-1. `yarn typecheck` and `yarn test`.
+1. `yarn typecheck` and `yarn test`. In a cloud session Corepack cannot download Yarn from repo.yarnpkg.com; prefix commands with `COREPACK_NPM_REGISTRY=https://registry.npmjs.org` and it fetches Yarn from npm instead. On a fresh clone Yarn also refuses to run any script, `yarn test` included, until `yarn install` has run, because the committed lockfile is stale.
 2. `yarn expo export --platform android` (the same bundling step CI runs; it catches missing modules that typecheck misses).
 3. For UI changes: export the web build and drive it with Playwright at phone width (about 400px). The cloud sandbox cannot reach Kraken, CoinPaprika or Alternative.me, so intercept those requests and answer them with synthetic candles and prices. Chromium is at `/opt/pw-browsers`.
 
@@ -42,6 +52,7 @@ Tabs: Home, Chart, Signals, Portfolio, On-Chain, Settings. The first tab is labe
 - **Trade entry mirrors Coinbase order details:** total, fee, BTC and price per BTC. Any two of total, BTC and price give the third. All three are cross-checked. Buy: total = BTC x price + fee. Sell: total = BTC x price - fee.
 - **The Portfolio tab always shows GBP and USD, whatever the currency setting.** Holdings value and P&L sit side by side; cost of holdings, average cost, realised and total put in show GBP with USD underneath. The other currency is converted at today's rate (implied by the live BTC price in each), and the screen says so.
 - **Data loads progressively.** Each source's result is shown as it arrives, and the last good data is shown instantly on launch. Do not go back to waiting for every source before rendering; that caused a 20-second blank screen.
+- **A trade's "What happened next" shows money next to each percentage**, e.g. "+1.5% (+£50)". The money is the move applied to the BTC from that trade, valued at the price paid (total minus fee on a buy), so it always has the same sign as the percentage. The percentages stay BTC/USD market moves, as before. A final row, "Worth now, vs what you paid", gives the real difference today with the fee included, which can be lower. Logic is `moveInMoney` and `worthNow` in `journal.ts`.
 - Old trades, backups (v1 and v2) and settings must keep loading after any change. Storage parsers validate field by field and default missing fields.
 
 ## Open issues

@@ -563,9 +563,46 @@ export interface TradeOutcome {
   due: number;
   /** Fractional BTC/USD change from the trade to the horizon; null if not yet known. */
   change: number | null;
+  /** The same move in money on the BTC from this trade, in the trade's currency (see moveInMoney). */
+  amount: number | null;
   /** True if the move went your way: up after a buy, down after a sell. */
   favourable: boolean | null;
 }
+
+/**
+ * What the BTC from a trade was worth at the trade's own price, in the
+ * trade's currency: BTC x price per BTC. By the order-details rule that is the
+ * total less the fee on a buy, and the total plus the fee on a sell.
+ */
+export const tradeBtcValue = (t: Trade): number => (t.side === 'buy' ? t.fiat - t.fee : t.fiat + t.fee);
+
+/**
+ * A price move turned into money: what that move is worth on the BTC from
+ * this trade, valued at the price paid. It always has the same sign as the
+ * move, so it reads alongside the percentage. The fee is not in it; see
+ * worthNow for the figure with the fee.
+ */
+export const moveInMoney = (t: Trade, change: number | null): number | null => {
+  const base = tradeBtcValue(t);
+  return change == null || !(base > 0) ? null : base * change;
+};
+
+export interface WorthNow {
+  /** The trade's BTC at today's price, in the trade's currency. */
+  value: number;
+  /** value minus the trade's total, fee included: what a buy is up or down by. */
+  diff: number;
+  /** Up after a buy, or down after a sell. */
+  favourable: boolean;
+}
+
+/** The trade's BTC valued at `nowPrice` (in the trade's currency) against what was paid or received. */
+export const worthNow = (t: Trade, nowPrice: number | null | undefined): WorthNow | null => {
+  if (nowPrice == null || !(nowPrice > 0) || !(t.btc > 0)) return null;
+  const value = t.btc * nowPrice;
+  const diff = value - t.fiat;
+  return { value, diff, favourable: t.side === 'buy' ? diff > 0 : diff < 0 };
+};
 
 export const tradeOutcomes = (trade: Trade, series: PriceSeries[], now: number = Date.now()): TradeOutcome[] => {
   const entry = trade.marketPriceUsd ?? priceAt(trade.time, series);
@@ -578,6 +615,7 @@ export const tradeOutcomes = (trade: Trade, series: PriceSeries[], now: number =
       days,
       due,
       change,
+      amount: moveInMoney(trade, change),
       favourable: change == null ? null : trade.side === 'buy' ? change > 0 : change < 0,
     };
   });

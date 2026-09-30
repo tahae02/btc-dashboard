@@ -214,10 +214,22 @@ Checks every external source the app uses, with the same URLs, and says for each
 
 The app's banner now gives the reason too, e.g. `(HTTP 403)`, `(timed out after 8s)` or `(could not connect)`. The probe also runs a second pass sending the same User-Agent as the Android app (`okhttp`), because some Cloudflare-fronted APIs let Node through but block that, so a source can pass the first pass and still fail on a phone.
 
+## Snapshot from the command line
+
+```bash
+yarn snapshot                        # app defaults: signal on 1D candles
+yarn snapshot --timeframe 4H         # the signal on another timeframe
+yarn snapshot --stretch-weight 0.2   # match a setting you changed in the app
+```
+
+Fetches live data and prints a plain-text report: UK time, price in USD and GBP, Fear & Greed, every indicator, every layer of the signal with the rule and threshold behind it, the app's overall advice and plain-English summary, the same indicators on 1H, 4H and 1W, and on-chain data. The app can produce the same report from your phone: **Settings > Share with Claude > Share snapshot** fetches fresh data and opens the share sheet with the text, using your settings. Paste it under `/btc-brief` when the command can't reach the data sources itself.
+
+It runs the app's own fetchers, indicators and engine (`src/services/marketApi.ts` and `src/services/marketReport.ts`), so with the same settings the numbers match the app. No API keys are needed. If a source fails, the report says which, why, and how to fix it. The `/btc-brief` Claude Code command (`.claude/commands/btc-brief.md`) starts from this report.
+
 ## Testing
 
 ```bash
-yarn test          # 190 tests, no install required
+yarn test          # 201 tests, no install required
 yarn test:watch
 yarn typecheck
 ```

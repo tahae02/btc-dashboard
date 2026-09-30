@@ -35,7 +35,7 @@ describe('glossary', () => {
 
 const base: SignalResult = {
   regime: 'BULL', regimeScore: 3, regimeComponents: [], action: 'ACCUMULATE_STRONG', actionLabel: 'ACCUMULATE HARD',
-  targetAllocation: 0.94, dcaMultiplier: 1.6, conviction: 74, stretchScore: 0.1, momentumScore: 0.4, readings: [], projections: null,
+  targetAllocation: 0.94, allocationParts: { base: 1, stretch: -0.02, momentum: 0.04, sentiment: 0 }, dcaMultiplier: 1.6, conviction: 74, stretchScore: 0.1, momentumScore: 0.4, readings: [], projections: null,
 };
 
 describe('describeMarket', () => {

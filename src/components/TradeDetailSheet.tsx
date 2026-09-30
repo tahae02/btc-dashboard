@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { InfoButton } from './InfoButton';
 import { useData } from '../context/DataContext';
 import { ExplainProvider } from '../context/ExplainContext';
-import { tradeOutcomes, priceAt, type Trade, type PriceSeries } from '../services/journal';
+import { tradeOutcomes, priceAt, moveInMoney, worthNow, type Trade, type PriceSeries } from '../services/journal';
 import { ACTION_LABEL } from '../services/signalEngine';
 import { ACTION_PLAIN } from '../services/plainEnglish';
 import { formatMoney, formatBtc, formatPct, formatDateTime, isFlat } from '../services/format';
@@ -40,6 +40,9 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 const pct = (v: number | null | undefined, digits = 1) => (v == null ? NOT_RECORDED : `${v > 0 ? '+' : ''}${v.toFixed(digits)}%`);
 /** -1..1 engine scores as a signed percentage, as the Signals tab shows them. */
 const score = (v: number | null | undefined) => (v == null ? NOT_RECORDED : `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`);
+/** "+1.5% (+£50)": the move, and what it is worth on this trade's BTC. */
+const moveWithMoney = (change: number, amount: number | null, t: Trade) =>
+  amount == null ? formatPct(change) : `${formatPct(change)} (${isFlat(change) ? formatMoney(0, t.currency) : formatMoney(amount, t.currency, true)})`;
 const moveColour = (v: number | null, good: boolean | null) =>
   v == null || isFlat(v) ? Colors.textSecondary : good ? Colors.bullish : Colors.bearish;
 
@@ -58,6 +61,8 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
   const entryUsd = t.marketPriceUsd ?? priceAt(t.time, series);
   const nowUsd = data.price?.price ?? null;
   const sinceThen = entryUsd && nowUsd ? nowUsd / entryUsd - 1 : null;
+  const worth = worthNow(t, t.currency === 'GBP' ? data.price?.price_gbp : data.price?.price);
+  const ccyName = t.currency === 'GBP' ? 'pounds' : 'dollars';
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -142,18 +147,29 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
                 <Row
                   key={o.key}
                   label={`${o.days} day${o.days === 1 ? '' : 's'} later`}
-                  value={o.change != null ? formatPct(o.change) : o.due > Date.now() ? `in ${Math.max(1, Math.ceil((o.due - Date.now()) / 86400000))} days` : '--'}
+                  value={o.change != null ? moveWithMoney(o.change, o.amount, t) : o.due > Date.now() ? `in ${Math.max(1, Math.ceil((o.due - Date.now()) / 86400000))} days` : '--'}
                   colour={o.change != null ? moveColour(o.change, o.favourable) : undefined}
                 />
               ))}
               <Row
                 label="Since then, to now"
-                value={sinceThen != null ? formatPct(sinceThen) : '--'}
+                value={sinceThen != null ? moveWithMoney(sinceThen, moveInMoney(t, sinceThen), t) : '--'}
                 colour={sinceThen != null ? moveColour(sinceThen, buy ? sinceThen > 0 : sinceThen < 0) : undefined}
               />
+              {worth && (
+                <Row
+                  label={buy ? 'Worth now, vs what you paid' : 'Worth now, vs what you got'}
+                  value={`${formatMoney(worth.value, t.currency)} (${formatMoney(worth.diff, t.currency, true)})`}
+                  colour={Math.abs(worth.diff) < 0.005 ? Colors.textSecondary : worth.favourable ? Colors.bullish : Colors.bearish}
+                />
+              )}
               <Text style={styles.source}>
                 BTC's market price in dollars after the trade: green when it moved your way ({buy ? 'up after a buy' : 'down after a sell'}).
                 The same move in pounds differs slightly, because the exchange rate moves too.
+              </Text>
+              <Text style={styles.source}>
+                The {ccyName} in brackets are that move on the BTC from this trade, valued at the price you {buy ? 'paid' : 'sold at'}, before the fee.
+                The last row is the real difference today, fee included{buy ? ', so it can be lower' : ''}.
               </Text>
             </Section>
 

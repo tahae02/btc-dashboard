@@ -195,6 +195,11 @@ export interface SignalResult {
   actionLabel: string;
   /** 0..1 target share of the intended Bitcoin sleeve. */
   targetAllocation: number;
+  /**
+   * What targetAllocation is made of: the regime's base plus each layer's
+   * adjustment. The sum is clamped to 0..1 to give targetAllocation.
+   */
+  allocationParts: { base: number; stretch: number; momentum: number; sentiment: number };
   /** Multiplier on a regular periodic contribution. 1.0 = unchanged. */
   dcaMultiplier: number;
   /** 0..100 agreement between independent families. Not a restatement of action. */
