@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseTrades, serialiseBackup, mergeTrades, parseAmount, parseLocalDateTime, parseTradeForm,
   summariseHoldings, priceAt, tradeOutcomes, tradesToCsv, groupBuysBySignal, resolveTradeFigures, fillFromMarket,
-  parseOpening, parseOpeningForm, parseBackup, isCoveredByOpening, type Trade, type SignalStamp, type OpeningPosition,
+  parseOpening, parseOpeningForm, parseBackup, isCoveredByOpening, moveInMoney, worthNow, tradeBtcValue, type Trade, type SignalStamp, type OpeningPosition,
 } from '../src/services/journal';
 import { formatPct, formatMoney, formatBtc, isFlat } from '../src/services/format';
 import type { OHLCVCandle } from '../src/types';
@@ -211,6 +211,44 @@ describe('tradeOutcomes', () => {
   test('a horizon that has not arrived yet stays unknown even if a candle exists', () => {
     const [d1] = tradeOutcomes(trade({ time: T0 }), series, T0 + DAY - 1);
     assert.equal(d1!.change, null);
+    assert.equal(d1!.amount, null);
+  });
+
+  test('gives each move in money too, on the BTC bought, at the price paid before the fee', () => {
+    // £1,015 paid with a £15 fee: the BTC was worth £1,000 at the price paid.
+    const t = trade({ time: T0, marketPriceUsd: 100, fiat: 1015, fee: 15 });
+    const [d1, d7] = tradeOutcomes(t, series, NOW);
+    assert.ok(Math.abs((d1!.amount ?? 0) - 10) < 1e-9, 'a 1% rise is +£10');
+    assert.ok(Math.abs((d7!.amount ?? 0) - 70) < 1e-9);
+  });
+});
+
+describe('money on a trade', () => {
+  test('the BTC is worth the total less the fee on a buy, plus the fee on a sell', () => {
+    assert.equal(tradeBtcValue(trade({ fiat: 1015, fee: 15 })), 1000);
+    assert.equal(tradeBtcValue(trade({ side: 'sell', fiat: 985, fee: 15 })), 1000);
+  });
+
+  test('the money always has the same sign as the move', () => {
+    assert.equal(moveInMoney(trade({ fiat: 1000 }), -0.05), -50);
+    assert.equal(moveInMoney(trade({ side: 'sell', fiat: 990, fee: 10 }), 0.02), 20);
+    assert.equal(moveInMoney(trade(), null), null);
+    assert.equal(moveInMoney(trade({ fiat: 5, fee: 5 }), 0.1), null, 'no value to measure against');
+  });
+
+  test('worth now counts the fee, so a small rise can still be a loss', () => {
+    // 0.02 BTC bought for £1,015 incl. a £15 fee, at £50,000. Now £50,500 (+1%).
+    const w = worthNow(trade({ fiat: 1015, fee: 15, btc: 0.02 }), 50500)!;
+    assert.equal(w.value, 1010);
+    assert.equal(w.diff, -5);
+    assert.equal(w.favourable, false);
+    assert.equal(worthNow(trade(), null), null);
+  });
+
+  test('after a sell, BTC now worth less than what you got is the good outcome', () => {
+    const w = worthNow(trade({ side: 'sell', fiat: 1000, btc: 0.02 }), 45000)!;
+    assert.equal(w.diff, -100);
+    assert.equal(w.favourable, true);
   });
 });
 

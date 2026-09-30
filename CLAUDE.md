@@ -52,6 +52,7 @@ Tabs: Home, Chart, Signals, Portfolio, On-Chain, Settings. The first tab is labe
 - **Trade entry mirrors Coinbase order details:** total, fee, BTC and price per BTC. Any two of total, BTC and price give the third. All three are cross-checked. Buy: total = BTC x price + fee. Sell: total = BTC x price - fee.
 - **The Portfolio tab always shows GBP and USD, whatever the currency setting.** Holdings value and P&L sit side by side; cost of holdings, average cost, realised and total put in show GBP with USD underneath. The other currency is converted at today's rate (implied by the live BTC price in each), and the screen says so.
 - **Data loads progressively.** Each source's result is shown as it arrives, and the last good data is shown instantly on launch. Do not go back to waiting for every source before rendering; that caused a 20-second blank screen.
+- **A trade's "What happened next" shows money next to each percentage**, e.g. "+1.5% (+£50)". The money is the move applied to the BTC from that trade, valued at the price paid (total minus fee on a buy), so it always has the same sign as the percentage. The percentages stay BTC/USD market moves, as before. A final row, "Worth now, vs what you paid", gives the real difference today with the fee included, which can be lower. Logic is `moveInMoney` and `worthNow` in `journal.ts`.
 - Old trades, backups (v1 and v2) and settings must keep loading after any change. Storage parsers validate field by field and default missing fields.
 
 ## Open issues
