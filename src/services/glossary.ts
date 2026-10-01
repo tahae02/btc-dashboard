@@ -244,6 +244,20 @@ export const GLOSSARY = {
       'brings it down. The second figure converts it into the other currency at today\'s exchange rate, so you can ' +
       'compare it with the charts, which are in dollars.',
   },
+  priceCalculator: {
+    title: 'What if Bitcoin hits…',
+    what:
+      'A calculator: pick a Bitcoin price on the slider and it shows what your Bitcoin, or an amount you type in, ' +
+      'would be worth at that price, in pounds and dollars, and how much more or less that is than you paid.',
+    read:
+      'It is plain arithmetic, not a forecast: it says nothing about how likely any price is. The slider is in ' +
+      'dollars by default, because Bitcoin prices are usually quoted in dollars. Pound figures use today\'s ' +
+      'exchange rate, which will have moved by the time Bitcoin gets anywhere, and nothing here takes off fees or tax.',
+    app:
+      '"My Bitcoin" uses the Bitcoin you hold and what it cost (the cost of holdings above). "An amount" assumes ' +
+      'you buy it at today\'s price, before fees. The slider runs from 10 thousand to 1 million and spaces them so ' +
+      'each tenfold rise takes the same room, which keeps the lower prices easy to pick.',
+  },
   tradeOutcomes: {
     title: 'After each trade (1d, 7d, 30d, 90d later)',
     what: "How Bitcoin's market price moved 1, 7, 30 and 90 days after each trade. Green means it moved your way: up after a buy, down after a sell.",
@@ -271,5 +285,5 @@ export const GLOSSARY_SECTIONS: { title: string; keys: GlossaryKey[] }[] = [
   },
   { title: 'The market', keys: ['fearGreed', 'dominance', 'marketCap', 'volume', 'supply'] },
   { title: 'The Bitcoin network', keys: ['hashRate', 'difficulty', 'mempool', 'fees'] },
-  { title: 'Charts and your portfolio', keys: ['candles', 'timeframe', 'averageCost', 'tradeOutcomes', 'trackRecord'] },
+  { title: 'Charts and your portfolio', keys: ['candles', 'timeframe', 'averageCost', 'priceCalculator', 'tradeOutcomes', 'trackRecord'] },
 ];
