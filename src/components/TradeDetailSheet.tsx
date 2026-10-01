@@ -5,6 +5,9 @@ import { InfoButton } from './InfoButton';
 import { useData } from '../context/DataContext';
 import { ExplainProvider } from '../context/ExplainContext';
 import { tradeOutcomes, priceAt, moveInMoney, worthNow, type Trade, type PriceSeries } from '../services/journal';
+import {
+  ADVICE_LABEL, SCENARIO_LABEL, VERDICT_LABEL, CONFIDENCE_LABEL, VS_APP_LABEL, compareWithApp, type PaperTrade, type PaperOrder,
+} from '../services/paper';
 import { ACTION_LABEL } from '../services/signalEngine';
 import { ACTION_PLAIN } from '../services/plainEnglish';
 import { formatMoney, formatBtc, formatPct, formatDateTime, isFlat } from '../services/format';
@@ -16,6 +19,8 @@ interface Props {
   covered: boolean;
   onClose: () => void;
   onDelete: (t: Trade) => void;
+  /** Set for a paper trade: what the decision was acting on, and the limit order it filled, if any. */
+  paper?: { meta: PaperTrade['paper']; order: PaperOrder | null } | null;
 }
 
 const NOT_RECORDED = 'Not recorded';
@@ -50,7 +55,7 @@ const moveColour = (v: number | null, good: boolean | null) =>
  * Everything recorded about one trade: the order itself, the market at that
  * moment, what the app was saying, and what the price did afterwards.
  */
-export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: Props) => {
+export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete, paper = null }: Props) => {
   const data = useData();
   if (!trade) return null;
   const t = trade;
@@ -63,6 +68,10 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
   const sinceThen = entryUsd && nowUsd ? nowUsd / entryUsd - 1 : null;
   const worth = worthNow(t, t.currency === 'GBP' ? data.price?.price_gbp : data.price?.price);
   const ccyName = t.currency === 'GBP' ? 'pounds' : 'dollars';
+  const m = paper?.meta ?? null;
+  const order = paper?.order ?? null;
+  const vsApp = m && buy ? compareWithApp(t.fiat, m.suggestedAmount) : null;
+  const chance = (v: number | null) => (v == null ? NOT_RECORDED : `${v}%`);
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -73,7 +82,7 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
         <View style={styles.sheet}>
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{buy ? 'Buy' : 'Sell'} of {formatMoney(t.fiat, t.currency)}</Text>
+              <Text style={styles.title}>{paper ? `Paper ${buy ? 'buy' : 'sell'}` : buy ? 'Buy' : 'Sell'} of {formatMoney(t.fiat, t.currency)}</Text>
               <Text style={styles.subtitle}>{formatDateTime(t.time)}</Text>
             </View>
             <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close trade details">
@@ -94,6 +103,47 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
               <Row label="Price per BTC with fee" value={formatMoney(effective, t.currency)} term="averageCost" />
               {t.note ? <Row label="Note" value={t.note} /> : null}
             </Section>
+
+            {m && (
+              <Section title="The paper decision">
+                <Row label="Following" value={ADVICE_LABEL[m.advice]} />
+                <Row label="Why then" value={SCENARIO_LABEL[m.scenario]} />
+                <Row label="Your usual amount" value={m.usualAmount != null ? formatMoney(m.usualAmount, t.currency) : NOT_RECORDED} />
+                {buy ? (
+                  <>
+                    <Row label="The app's amount" term="dcaMultiplier" value={m.suggestedAmount != null ? formatMoney(m.suggestedAmount, t.currency) : NOT_RECORDED} />
+                    <Row label="Compared with the app" value={vsApp ? VS_APP_LABEL[vsApp] : NOT_RECORDED} />
+                  </>
+                ) : (
+                  <Text style={styles.plain}>The app never advises selling: it only scales how much to buy. A paper sell is your own call or Claude&apos;s.</Text>
+                )}
+                <Row label="Bitcoin over the 24 hours before" value={pct(m.change24hPct)} />
+                {m.brief && (
+                  <>
+                    <Row label="Claude's verdict" value={m.brief.verdict ? VERDICT_LABEL[m.brief.verdict] : NOT_RECORDED} />
+                    <Row label="Claude's confidence" value={m.brief.confidence ? CONFIDENCE_LABEL[m.brief.confidence] : NOT_RECORDED} />
+                    <Row label="Chance lower in 24 hours" value={chance(m.brief.lower24h)} />
+                    <Row label="Chance lower in 48 hours" value={chance(m.brief.lower48h)} />
+                    <Row label="Chance lower in 7 days" value={chance(m.brief.lower7d)} />
+                  </>
+                )}
+                {order && (
+                  <>
+                    <Row label="Limit order placed" term="limitOrder" value={formatDateTime(order.placedAt)} />
+                    <Row label="Price when placed" value={formatMoney(order.marketAtPlacement, order.currency)} />
+                    <Row
+                      label="Bought below that by"
+                      value={`${((1 - order.limitPrice / order.marketAtPlacement) * 100).toFixed(1)}%`}
+                      colour={Colors.bullish}
+                    />
+                    <Row label="Would have run out" value={formatDateTime(order.expiresAt)} />
+                    <Text style={styles.source}>
+                      Filled from hourly prices: the price traded at or below the limit during the hour starting at the time shown above.
+                    </Text>
+                  </>
+                )}
+              </Section>
+            )}
 
             <Section title="The market at the time">
               <Row label="BTC price in pounds" value={t.marketPriceGbp != null ? formatMoney(t.marketPriceGbp, 'GBP') : NOT_RECORDED} />
@@ -132,7 +182,9 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
                   <Row label="Price stretch" term="stretch" value={score(s.stretchScore)} />
                   <Row label="Momentum" term="momentum" value={score(s.momentumScore)} />
                   <Text style={styles.source}>
-                    {s.source === 'live'
+                    {order
+                      ? 'Recorded when you placed the order, since that is when the decision was made.'
+                      : s.source === 'live'
                       ? 'Recorded live: exactly what the app was showing when you logged this.'
                       : 'Replayed from that day\'s price history, because this trade was logged afterwards.'}
                   </Text>
@@ -175,7 +227,7 @@ export const TradeDetailSheet = ({ trade, series, covered, onClose, onDelete }: 
 
             <Pressable onPress={() => onDelete(t)} style={styles.delete} accessibilityRole="button">
               <Ionicons name="trash-outline" size={16} color={Colors.bearish} />
-              <Text style={styles.deleteText}>Delete this trade</Text>
+              <Text style={styles.deleteText}>{paper ? 'Delete this paper trade' : 'Delete this trade'}</Text>
             </Pressable>
           </ScrollView>
         </View>

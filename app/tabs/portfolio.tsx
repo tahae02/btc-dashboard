@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Share, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,10 +10,13 @@ import { AddTradeSheet } from '../../src/components/AddTradeSheet';
 import { OpeningSheet } from '../../src/components/OpeningSheet';
 import { TradeDetailSheet } from '../../src/components/TradeDetailSheet';
 import { PriceCalculatorCard } from '../../src/components/PriceCalculatorCard';
+import { TradeCard } from '../../src/components/TradeCard';
+import { PaperPortfolio } from '../../src/components/PaperPortfolio';
 import { InfoButton } from '../../src/components/InfoButton';
 import { useExplain } from '../../src/context/ExplainContext';
+import { PORTFOLIO_VIEW_KEY } from '../../src/services/paper';
 import {
-  summariseHoldings, tradeOutcomes, groupBuysBySignal, serialiseBackup, tradesToCsv, isCoveredByOpening,
+  summariseHoldings, groupBuysBySignal, serialiseBackup, tradesToCsv, isCoveredByOpening,
   type Trade, type TradeSide, type PriceSeries,
 } from '../../src/services/journal';
 import { ACTION_LABEL } from '../../src/services/signalEngine';
@@ -25,7 +29,7 @@ const pnlColour = (n: number | null | undefined) => (n == null || n === 0 ? Colo
 const moveColour = (n: number | null | undefined, good: boolean | null = n == null ? null : n > 0) =>
   n == null || isFlat(n) ? Colors.textSecondary : good ? Colors.bullish : Colors.bearish;
 
-const daysUntil = (t: number) => Math.max(1, Math.ceil((t - Date.now()) / 86400000));
+type PortfolioView = 'real' | 'paper';
 
 export default function PortfolioScreen() {
   const data = useData();
@@ -38,6 +42,15 @@ export default function PortfolioScreen() {
   const [restoreText, setRestoreText] = useState('');
   // Off while a finger is on the calculator's slider, so dragging it does not scroll the page.
   const [scrollable, setScrollable] = useState(true);
+  // Real trades or paper trades. Remembered, so the tab opens on whichever was used last.
+  const [view, setView] = useState<PortfolioView>('real');
+  useEffect(() => {
+    AsyncStorage.getItem(PORTFOLIO_VIEW_KEY).then((v) => { if (v === 'paper') setView('paper'); }).catch(() => {});
+  }, []);
+  const switchView = (v: PortfolioView) => {
+    setView(v);
+    AsyncStorage.setItem(PORTFOLIO_VIEW_KEY, v).catch(() => {});
+  };
 
   // Hourly bars make the 1-day outcome of a recent trade accurate to the hour.
   const { loadTimeframe } = data;
@@ -117,7 +130,28 @@ export default function PortfolioScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Portfolio</Text>
+        <View style={styles.switch} accessibilityRole="tablist">
+          {([['real', 'My trades'], ['paper', 'Paper']] as const).map(([v, label]) => {
+            const on = view === v;
+            const colour = v === 'paper' ? Colors.paper : Colors.accent;
+            return (
+              <Pressable
+                key={v}
+                onPress={() => switchView(v)}
+                style={[styles.switchBtn, on && { backgroundColor: colour + '26', borderColor: colour }]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={v === 'paper' ? 'Paper trading' : 'My real trades'}
+              >
+                <Text style={[styles.switchText, on && { color: colour }]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
+      {view === 'paper' ? (
+        <PaperPortfolio />
+      ) : (
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" scrollEnabled={scrollable}>
         {!hasAnything ? (
           <GlassCard>
@@ -263,66 +297,16 @@ export default function PortfolioScreen() {
           </GlassCard>
         )}
 
-        {newestFirst.map((t) => {
-          const outcomes = tradeOutcomes(t, series);
-          const covered = isCoveredByOpening(t, journal.opening);
-          return (
-            <Pressable key={t.id} onPress={() => setDetailId(t.id)} accessibilityRole="button" accessibilityLabel="Open trade details">
-            <GlassCard style={styles.tradeCard}>
-              <View style={styles.tradeTop}>
-                <View style={styles.tradeTopLeft}>
-                  <View style={[styles.sidePill, { backgroundColor: (t.side === 'buy' ? Colors.bullish : Colors.bearish) + '26' }]}>
-                    <Text style={[styles.sideText, { color: t.side === 'buy' ? Colors.bullish : Colors.bearish }]}>{t.side.toUpperCase()}</Text>
-                  </View>
-                  <Text style={styles.tradeDate}>{formatDateTime(t.time)}</Text>
-                </View>
-                <Pressable onPress={() => confirmDelete(t)} hitSlop={10} accessibilityLabel="Delete trade">
-                  <Ionicons name="trash-outline" size={18} color={Colors.textTertiary} />
-                </Pressable>
-              </View>
-
-              <Text style={styles.tradeMain}>
-                {formatMoney(t.fiat, t.currency)} {t.side === 'buy' ? '→' : '←'} {formatBtc(t.btc)} BTC
-              </Text>
-              <Text style={styles.tradeSub}>
-                at {formatMoney(t.unitPrice ?? t.fiat / t.btc, t.currency)} per BTC
-                {t.fee > 0 ? ` · fee ${formatMoney(t.fee, t.currency)}` : ''}
-              </Text>
-              {covered && (
-                <Text style={styles.coveredText}>Already counted in your starting balance, so not added again.</Text>
-              )}
-
-              {t.signal ? (
-                <View style={styles.stampRow}>
-                  <Text style={[styles.stampAction, { color: getSignalColor(t.signal.action) }]}>{ACTION_LABEL[t.signal.action]}</Text>
-                  <Text style={styles.stampMeta}>
-                    {' '}· {t.signal.dcaMultiplier}× · conviction {t.signal.conviction}%
-                    {t.signal.fearGreed != null ? ` · F&G ${t.signal.fearGreed}` : ''}
-                    {t.signal.source === 'reconstructed' ? ' · replayed' : ''}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={[styles.stampMeta, { marginTop: Spacing.sm }]}>No signal recorded</Text>
-              )}
-
-              <View style={styles.outcomes}>
-                {outcomes.map((o) => (
-                  <View key={o.key} style={styles.outcome}>
-                    <Text style={styles.outcomeLabel}>{o.key} later</Text>
-                    {o.change != null ? (
-                      <Text style={[styles.outcomeValue, { color: moveColour(o.change, o.favourable) }]}>{formatPct(o.change)}</Text>
-                    ) : (
-                      <Text style={styles.outcomePending}>{o.due > Date.now() ? `in ${daysUntil(o.due)}d` : '--'}</Text>
-                    )}
-                  </View>
-                ))}
-              </View>
-              {t.note ? <Text style={styles.tradeNote}>{t.note}</Text> : null}
-              <Text style={styles.detailHint}>Tap for everything recorded →</Text>
-            </GlassCard>
-            </Pressable>
-          );
-        })}
+        {newestFirst.map((t) => (
+          <TradeCard
+            key={t.id}
+            trade={t}
+            series={series}
+            covered={isCoveredByOpening(t, journal.opening)}
+            onPress={() => setDetailId(t.id)}
+            onDelete={() => confirmDelete(t)}
+          />
+        ))}
 
         {journal.trades.length > 0 && (
           <Text style={styles.footnote} onPress={() => explain('tradeOutcomes')}>
@@ -367,6 +351,7 @@ export default function PortfolioScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+      )}
 
       <AddTradeSheet visible={sheet != null} initialSide={sheet ?? 'buy'} onClose={() => setSheet(null)} />
       <OpeningSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} />
@@ -385,7 +370,10 @@ export default function PortfolioScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
-  header: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  header: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
+  switch: { flexDirection: 'row', gap: 6 },
+  switchBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill, borderWidth: 1, borderColor: Colors.cardBorder },
+  switchText: { ...Typography.caption, fontWeight: '600', color: Colors.textSecondary },
   headerTitle: { ...Typography.heading },
   scroll: { flex: 1 },
   content: { padding: Spacing.lg, gap: Spacing.md },
@@ -408,7 +396,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: Colors.cardBorder,
   },
   openingText: { ...Typography.caption, flex: 1, lineHeight: 17 },
-  coveredText: { ...Typography.caption, color: Colors.neutral, marginTop: 4, fontSize: 11 },
   inlineLink: { color: Colors.accent },
   note: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: Spacing.md },
   actions: { flexDirection: 'row', gap: Spacing.md },
@@ -423,24 +410,6 @@ const styles = StyleSheet.create({
   td: { ...Typography.caption, color: Colors.textPrimary, fontFamily: Fonts.mono },
   colSignal: { flex: 1.6 },
   colNum: { flex: 1, textAlign: 'right' },
-  tradeCard: { paddingVertical: Spacing.md },
-  tradeTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tradeTopLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  sidePill: { borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 2 },
-  sideText: { ...Typography.caption, fontWeight: '700', fontSize: 11 },
-  tradeDate: { ...Typography.caption },
-  tradeMain: { ...Typography.monoData, fontSize: 16, marginTop: Spacing.sm },
-  tradeSub: { ...Typography.caption, marginTop: 2 },
-  stampRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: Spacing.sm },
-  stampAction: { ...Typography.caption, fontWeight: '700' },
-  stampMeta: { ...Typography.caption, color: Colors.textTertiary },
-  outcomes: { flexDirection: 'row', marginTop: Spacing.md, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
-  outcome: { flex: 1, alignItems: 'center' },
-  outcomeLabel: { ...Typography.caption, color: Colors.textTertiary, fontSize: 11 },
-  outcomeValue: { ...Typography.monoData, fontSize: 13, marginTop: 2 },
-  outcomePending: { ...Typography.caption, color: Colors.textTertiary, marginTop: 2 },
-  detailHint: { ...Typography.caption, color: Colors.accent, fontSize: 11, marginTop: Spacing.sm },
-  tradeNote: { ...Typography.caption, color: Colors.textSecondary, marginTop: Spacing.sm, fontStyle: 'italic' },
   footnote: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, paddingHorizontal: Spacing.xs },
   backupRow: { flexDirection: 'row', gap: Spacing.lg, marginTop: Spacing.md, flexWrap: 'wrap' },
   linkBtn: { paddingVertical: 4 },

@@ -63,6 +63,17 @@ Then log each buy or sell with the figures from your exchange's order details: t
 
 **What if Bitcoin hits… (Portfolio tab).** Pick a Bitcoin price with the slider, the quick picks, the +/- buttons or by typing it, and see what your Bitcoin would be worth at that price in pounds and dollars, the gain or loss in each, and the percentage on what it cost. Switch to *An amount* to try a figure you type in instead, bought at today's price. The slider is in dollars by default and can be switched to pounds; it runs from 10 thousand to 1 million on a log scale, with today's price marked. It is arithmetic on a price you choose, not a forecast. Logic is in `src/services/calculator.ts`.
 
+**Paper trading (Portfolio tab, Paper).** A switch at the top of the Portfolio tab flips between *My trades* and *Paper*. Paper trades are made with pretend money at real prices, so you can follow the advice to the letter every time and build a record of how well it actually does. They are kept completely apart from your real trades: their own storage, backup and CSV, and the real journal refuses anything marked as paper.
+
+- **Paper buy** fills in the app's amount for you: your usual amount times the DCA multiplier. Choose *Buy now* (at the live price, with the fee you set), *Limit order* (buy only if the price falls to your level within 1, 2, 7 or 14 days, the way /btc-brief suggests splitting a buy), or *Don't buy* (a deliberate decision to hold back, which the record needs to judge waiting). **Paper sell** is there too, for your own or Claude's calls; the app itself only ever scales buys.
+- Each decision records the same full picture as a real trade, plus whose call it was (the app, Claude's brief or your own), why you decided then (regular buy day, advice changed, big move, extreme fear or greed, news, tempted to trade for real), what the app suggested, and for a brief its verdict, confidence and the chances it gave of a lower price after 24 hours, 48 hours and 7 days. The sheet points out when today's market fits one of those reasons.
+- Paper trades are always at the live price. A back-dated paper trade would be chosen with hindsight.
+- Limit orders fill from hourly prices in the order's currency, whether or not the app is open. Only whole hours after placing count, so a dip in the first or last few minutes can be missed, but a fill is never invented. While the app is open the live price is checked too.
+- The price 24 hours, 48 hours, 7, 30 and 90 days after every decision is recorded once known and kept, so results stay accurate to the hour long after the app's hourly history has moved on.
+- **How the advice has done** scores the record: your paper buys against the same money spread evenly over the same days (the clearest test of whether varying the amount pays), results grouped by whose call, why, the signal tier and how the amount compared with the app's, how good Claude's chances were (a Brier score against 0.250 for always saying 50%), limit order fill rates and savings, and what your real buys paid per BTC against your paper ones. Every figure shows its sample size and says when it is too few to judge.
+- **How to paper trade** on the same screen covers when and how often: every regular buy day without fail, extras when something happens (at most one a day), and whenever you are tempted to trade for real.
+- Export a paper backup or CSV from the bottom of the screen. `yarn paper-review path/to/paper-backup.json` prints the same scorecard from a backup, and the `/paper-review` Claude command uses it (or the CSV) for a deeper review. Logic is in `src/services/paper.ts` and `src/services/paperReview.ts`.
+
 **Track record (Signals tab).** Two records, scored the same way:
 
 - *Replay.* The engine re-run on each of the ~500 scorable days in the ~720 days of history the app downloads, seeing only prices up to that day. For each tier: the average BTC move 7, 30 and 90 days later, against an average day. It also checks whether scaling weekly buys by the DCA multiplier bought more cheaply than a flat amount, and how often price actually landed inside the 24h and 7d ranges, which claim about two thirds.
@@ -226,12 +237,20 @@ yarn snapshot --stretch-weight 0.2   # match a setting you changed in the app
 
 Fetches live data and prints a plain-text report: UK time, price in USD and GBP, Fear & Greed, every indicator, every layer of the signal with the rule and threshold behind it, the app's overall advice and plain-English summary, the same indicators on 1H, 4H and 1W, and on-chain data. The app can produce the same report from your phone: **Settings > Share with Claude > Share snapshot** fetches fresh data and opens the share sheet with the text, using your settings. Paste it under `/btc-brief` when the command can't reach the data sources itself.
 
-It runs the app's own fetchers, indicators and engine (`src/services/marketApi.ts` and `src/services/marketReport.ts`), so with the same settings the numbers match the app. No API keys are needed. If a source fails, the report says which, why, and how to fix it. The `/btc-brief` Claude Code command (`.claude/commands/btc-brief.md`) starts from this report.
+It runs the app's own fetchers, indicators and engine (`src/services/marketApi.ts` and `src/services/marketReport.ts`), so with the same settings the numbers match the app. No API keys are needed. If a source fails, the report says which, why, and how to fix it. The `/btc-brief` Claude Code command (`.claude/commands/btc-brief.md`) starts from this report, and ends with a one-line "Paper log" to copy into a paper decision.
+
+## Reviewing the paper record
+
+```bash
+yarn paper-review path/to/paper-backup.json
+```
+
+Prints the paper scorecard from a backup exported in the app (Portfolio, Paper, Export backup), using the same code as the app's "How the advice has done" card. It needs no network: every price it uses is in the backup. The `/paper-review` Claude Code command (`.claude/commands/paper-review.md`) starts from it, or from the paper CSV, and goes further: coverage of the regular buy day, uncertainty on every difference, Claude's calibration by bucket, and what is worth changing. Changes to the signal engine still go through `yarn backtest --split`, never straight from the paper record.
 
 ## Testing
 
 ```bash
-yarn test          # 201 tests, no install required
+yarn test          # 282 tests, no install required
 yarn test:watch
 yarn typecheck
 ```
@@ -244,6 +263,7 @@ Tests run on Node's built-in runner, so they need no dependencies at all. They c
 - the no-lookahead guarantee in the backtester
 - metrics (IRR, drawdown, contributions not counted as performance)
 - the trade journal (average-cost P&L, form parsing, outcomes) and the track record, including that replayed calls ignore the future
+- paper trading: storage that can never mix paper and real records, limit order fills (including that a dip before the order existed never counts), recorded outcomes, and the scorecard
 
 There are no component tests, and therefore no jest. Adding them later means adding `jest-expo` and `@testing-library/react-native` back.
 
@@ -252,7 +272,7 @@ There are no component tests, and therefore no jest. Adding them later means add
 ## Project layout
 
 ```
-src/services/      pure logic, no React: indicators, signal engine, candles, supply, settings, journal, track record
+src/services/      pure logic, no React: indicators, signal engine, candles, supply, settings, journal, track record, paper trading
 src/hooks/         thin React wrappers over the above
 src/context/       settings, market data and journal providers
 app/tabs/          the six screens

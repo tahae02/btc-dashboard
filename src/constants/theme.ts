@@ -8,6 +8,9 @@ export const Colors = {
   shimmerBase: '#1A1A28',
   shimmerHighlight: '#252538',
   accent: '#00D2FF',
+  // Paper trading has its own colour, so a paper screen can never be mistaken
+  // for your real holdings at a glance.
+  paper: '#B388FF',
   bullish: '#00E676',
   bearish: '#FF1744',
   neutral: '#FFB300',

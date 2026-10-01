@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "probe": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/probe-sources.ts",
     "snapshot": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/snapshot.ts",
+    "paper-review": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs scripts/paperReview.ts",
     "backtest": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs backtest/run.ts",
     "backtest:fetch": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs backtest/fetch.ts",
     "backtest:sweep": "node --experimental-strip-types --no-warnings --import ./backtest/register.mjs backtest/run.ts --sweep",
