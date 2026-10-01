@@ -8,6 +8,7 @@ import { GlassCard } from '../../src/components/GlassCard';
 import { AddTradeSheet } from '../../src/components/AddTradeSheet';
 import { OpeningSheet } from '../../src/components/OpeningSheet';
 import { TradeDetailSheet } from '../../src/components/TradeDetailSheet';
+import { PriceCalculatorCard } from '../../src/components/PriceCalculatorCard';
 import { InfoButton } from '../../src/components/InfoButton';
 import { useExplain } from '../../src/context/ExplainContext';
 import {
@@ -35,6 +36,8 @@ export default function PortfolioScreen() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreText, setRestoreText] = useState('');
+  // Off while a finger is on the calculator's slider, so dragging it does not scroll the page.
+  const [scrollable, setScrollable] = useState(true);
 
   // Hourly bars make the 1-day outcome of a recent trade accurate to the hour.
   const { loadTimeframe } = data;
@@ -115,7 +118,7 @@ export default function PortfolioScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Portfolio</Text>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" scrollEnabled={scrollable}>
         {!hasAnything ? (
           <GlassCard>
             <Text style={styles.sectionTitle}>Track what you buy</Text>
@@ -222,6 +225,12 @@ export default function PortfolioScreen() {
             <Text style={styles.actionText}>Log a sell</Text>
           </Pressable>
         </View>
+
+        <PriceCalculatorCard
+          holdings={hasAnything ? { btc: gbp.btc, costGbp: gbp.costBasis } : null}
+          live={{ usd: liveUsd, gbp: liveGbp }}
+          onDragChange={(dragging) => setScrollable(!dragging)}
+        />
 
         {groups.length > 0 && (
           <GlassCard>
