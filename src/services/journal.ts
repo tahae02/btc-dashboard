@@ -111,7 +111,7 @@ export const makeId = (now: number = Date.now()): string =>
 
 // ===== Storage validation =====
 
-const parseStamp = (s: any): SignalStamp | null => {
+export const parseStamp = (s: any): SignalStamp | null => {
   if (!s || !ACTIONS.includes(s.action)) return null;
   if (![s.targetAllocation, s.dcaMultiplier, s.conviction, s.regimeScore].every(isNum)) return null;
   return {
@@ -133,7 +133,8 @@ const parseStamp = (s: any): SignalStamp | null => {
   };
 };
 
-const parseTrade = (t: any): Trade | null => {
+/** The fields every trade has, real or paper. Paper trades add their own on top (see paper.ts). */
+export const parseTradeRecord = (t: any): Trade | null => {
   if (!t || typeof t.id !== 'string' || !t.id) return null;
   if (t.side !== 'buy' && t.side !== 'sell') return null;
   if (!isNum(t.time) || t.time < EARLIEST) return null;
@@ -155,6 +156,9 @@ const parseTrade = (t: any): Trade | null => {
   };
 };
 
+/** A real trade. Anything carrying paper-trade details is refused, so paper never counts as real. */
+const parseTrade = (t: any): Trade | null => (t && t.paper != null ? null : parseTradeRecord(t));
+
 /** Oldest first. Invalid entries are dropped rather than crashing a screen. */
 export const sortTrades = (trades: Trade[]): Trade[] => [...trades].sort((a, b) => a.time - b.time || a.createdAt - b.createdAt);
 
@@ -170,6 +174,7 @@ export const parseTrades = (raw: string | null): Trade[] => {
   } catch {
     return [];
   }
+  // A paper backup keeps its trades under `paperTrades`, so it yields nothing here.
   const list = Array.isArray(data) ? data : Array.isArray(data?.trades) ? data.trades : [];
   const seen = new Set<string>();
   const out: Trade[] = [];

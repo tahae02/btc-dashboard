@@ -5,6 +5,7 @@ import { PaperProvider, MD3DarkTheme } from 'react-native-paper';
 import { SettingsProvider } from '../src/context/SettingsContext';
 import { DataProvider } from '../src/context/DataContext';
 import { JournalProvider } from '../src/context/JournalContext';
+import { PaperTradingProvider } from '../src/context/PaperTradingContext';
 import { ExplainProvider } from '../src/context/ExplainContext';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -35,10 +36,12 @@ export default function RootLayout() {
       <SettingsProvider>
         <DataProvider>
           <JournalProvider>
-            <ExplainProvider>
-              <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
-              <Slot />
-            </ExplainProvider>
+            <PaperTradingProvider>
+              <ExplainProvider>
+                <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
+                <Slot />
+              </ExplainProvider>
+            </PaperTradingProvider>
           </JournalProvider>
         </DataProvider>
       </SettingsProvider>

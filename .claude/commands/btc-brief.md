@@ -65,11 +65,12 @@ Put this after the research. Verdict first, in exactly this order, as short bull
 - **Verdict:** BUY NOW, WAIT, or SPLIT (part now, part later).
 - **Best entry:** a target price zone in USD and GBP, and the time window to aim for (for example later today, after a named event, over the weekend).
 - **The plan:** if SPLIT or WAIT, exactly how to split the amount (in pounds when an amount was given) and the limit order prices to set, in GBP for Coinbase with USD alongside. Mention that limit orders on Coinbase Advanced usually cost less in fees than a simple buy. Say what to do if the limits are not filled by a stated time.
-- **Short-term outlook:** the most likely direction, plus rough probabilities that the price will be lower than now within 24 hours, 48 hours and 7 days. Start from about 50% (Bitcoin is close to a coin flip over short horizons) and move away from it only as far as the evidence justifies; say briefly what moved it.
+- **Short-term outlook:** the most likely direction, plus rough probabilities that the price will be lower than now 24 hours, 48 hours and 7 days from now (lower at that moment, not at some point before it: that is how the app's paper record scores them). Start from about 50% (Bitcoin is close to a coin flip over short horizons) and move away from it only as far as the evidence justifies; say briefly what moved it.
 - **Key levels:** nearest support and resistance in USD and GBP, from the snapshot and the liquidation data.
 - **Why:** a few lines on where the app's signals and the research agree or conflict.
 - **Invalidation:** the specific price or event that would flip the call.
 - **Confidence:** high, medium or low. If it is genuinely a coin flip, say so plainly rather than forcing a call.
+- **For your paper log:** one line the owner can copy into a paper decision in the app (Portfolio, Paper, Paper buy, "Claude's brief"): the verdict, the confidence, the three chances above as whole percentages, and for a SPLIT or WAIT each limit order as amount, GBP price and expiry. Give expiries of 1, 2, 7 or 14 days, the choices the app's paper orders offer, and make the plan's "if not filled by" time match. For example: `Paper log: SPLIT · medium · lower 24h 55%, 48h 52%, 7d 48% · now £250 · limit £250 at £55,100, 2 days`.
 
 Style rules for the whole reply:
 - Be direct and decisive. No disclaimers, no "not financial advice", no reminders that AI can be wrong.

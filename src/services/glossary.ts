@@ -272,6 +272,45 @@ export const GLOSSARY = {
       'If ACCUMULATE HARD days were followed by better returns than an average day, the signal has been adding ' +
       'something. Dimmed rows have too little data to judge. Past results do not guarantee future ones.',
   },
+  paperTrading: {
+    title: 'Paper trading',
+    what:
+      'Buying and selling with pretend money, at real prices. Nothing is bought, nothing is spent, and paper ' +
+      'trades never mix with your real holdings.',
+    read:
+      'It lets you follow the advice exactly, every time, without risking anything, and see what that would have ' +
+      'done. Over months the record shows whether following the app, or Claude\'s brief, or your own calls, has ' +
+      'actually paid. A few weeks of it is mostly luck either way.',
+    app:
+      'Every paper decision records the same full picture as a real trade, plus whose advice you followed, why you ' +
+      'decided then, and what the app suggested. Paper trades are always at the live price: a back-dated one would ' +
+      'be chosen with hindsight. Fees are charged as set in Paper settings.',
+  },
+  limitOrder: {
+    title: 'Limit order',
+    what:
+      'An order to buy only if the price falls to a level you set, before a time you set. If the price never gets ' +
+      'there, nothing is bought.',
+    read:
+      'It can buy more cheaply than buying now, and on Coinbase Advanced it usually pays a lower fee. The risk is ' +
+      'the price rising and never coming back, so you buy later at a higher price or not at all.',
+    app:
+      'Paper limit orders fill from hourly prices, whether or not the app is open. Only whole hours after you ' +
+      'place one count, so a dip in the first or last few minutes can be missed; that never flatters the results. ' +
+      'While the app is open, the live price is checked too.',
+  },
+  paperScorecard: {
+    title: 'How the advice has done',
+    what: 'A summary of your paper record: how your paper buys compare with spreading the same money evenly, how each kind of decision turned out, and how good Claude\'s chances were.',
+    read:
+      '"Cheaper than putting the same money in evenly" is the clearest test of whether varying how much you buy ' +
+      'pays. For Claude\'s chances, the score is lower when they are better: always saying 50% scores 0.250, so ' +
+      'beating that over many calls means the chances carry real information.',
+    app:
+      'Price moves are Bitcoin\'s dollar price from the moment of each decision. Results on a handful of decisions ' +
+      'are mostly luck, so each one says how many it is based on and warns when that is too few. The engine never ' +
+      'retunes itself from this record; it shows where a change might be worth testing.',
+  },
 } satisfies Record<string, GlossaryEntry>;
 
 export type GlossaryKey = keyof typeof GLOSSARY;
@@ -286,4 +325,5 @@ export const GLOSSARY_SECTIONS: { title: string; keys: GlossaryKey[] }[] = [
   { title: 'The market', keys: ['fearGreed', 'dominance', 'marketCap', 'volume', 'supply'] },
   { title: 'The Bitcoin network', keys: ['hashRate', 'difficulty', 'mempool', 'fees'] },
   { title: 'Charts and your portfolio', keys: ['candles', 'timeframe', 'averageCost', 'priceCalculator', 'tradeOutcomes', 'trackRecord'] },
+  { title: 'Paper trading', keys: ['paperTrading', 'limitOrder', 'paperScorecard'] },
 ];
