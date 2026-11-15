@@ -4,7 +4,7 @@ import { GlassCard } from './GlassCard';
 import { InfoButton } from './InfoButton';
 import { MIN_CALLS, MIN_GROUP, paperHeadlines, type OutcomeGroup, type PaperScorecard } from '../services/paperReview';
 import { formatPct, isFlat } from '../services/format';
-import { Colors, Typography, Spacing, BorderRadius, Fonts, getSignalColor } from '../constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, Fonts, getSignalColor, Numbers } from '../constants/theme';
 
 type GroupBy = 'bySource' | 'byScenario' | 'byTier' | 'byVsApp';
 const GROUPINGS: { key: GroupBy; label: string }[] = [
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   tr: { flexDirection: 'row', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder, alignItems: 'center' },
   thin: { opacity: 0.45 },
   th: { ...Typography.caption, color: Colors.textTertiary, fontSize: 10 },
-  td: { ...Typography.caption, color: Colors.textPrimary, fontFamily: Fonts.mono, fontSize: 11 },
+  td: { ...Typography.caption, color: Colors.textPrimary, ...Numbers, fontSize: 11 },
   colName: { flex: 1.8 },
   colN: { flex: 0.6, textAlign: 'right' },
   colNum: { flex: 1, textAlign: 'right' },

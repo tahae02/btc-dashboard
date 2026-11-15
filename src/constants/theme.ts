@@ -15,8 +15,11 @@ export const Colors = {
   bearish: '#FF1744',
   neutral: '#FFB300',
   textPrimary: '#E8E8F0',
-  textSecondary: '#8888A0',
-  textTertiary: '#555570',
+  // Both greys pass the 4.5:1 reading standard on the card background
+  // (#A0A0B8 is 7.3:1, #80809A is 4.9:1). The faintest used to be #555570,
+  // about 2.6:1, which made small print hard to read outdoors.
+  textSecondary: '#A0A0B8',
+  textTertiary: '#80809A',
   glassBackground: 'rgba(18,18,26,0.8)',
   glassBorder: 'rgba(255,255,255,0.06)',
   strongBuy: '#00E676',
@@ -62,9 +65,19 @@ const systemFont = Platform.select({
 });
 
 export const Fonts = {
+  /** Real monospace, only for pasted backup text. Numbers use `Numbers` below. */
   mono: monoFont ?? 'monospace',
   system: systemFont ?? 'Arial, sans-serif',
 } as const;
+
+/**
+ * Prices and figures: the normal font with even-width digits, so columns of
+ * numbers line up without the typewriter look of a monospace font.
+ */
+export const Numbers = {
+  fontFamily: Fonts.system,
+  fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+};
 
 export const Typography = {
   display: { fontSize: 32, fontWeight: '700' as const, fontFamily: Fonts.system, color: Colors.textPrimary },
@@ -72,8 +85,8 @@ export const Typography = {
   subheading: { fontSize: 18, fontWeight: '600' as const, fontFamily: Fonts.system, color: Colors.textPrimary },
   body: { fontSize: 16, fontWeight: '400' as const, fontFamily: Fonts.system, color: Colors.textPrimary },
   caption: { fontSize: 12, fontWeight: '400' as const, fontFamily: Fonts.system, color: Colors.textSecondary },
-  monoData: { fontSize: 14, fontWeight: '500' as const, fontFamily: Fonts.mono, color: Colors.textPrimary },
-  priceDisplay: { fontSize: 28, fontWeight: '700' as const, fontFamily: Fonts.mono, color: Colors.textPrimary },
+  monoData: { fontSize: 14, fontWeight: '500' as const, ...Numbers, color: Colors.textPrimary },
+  priceDisplay: { fontSize: 32, fontWeight: '700' as const, ...Numbers, color: Colors.textPrimary, letterSpacing: -0.5 },
 } as const;
 
 export const getSignalColor = (signal: string): string => {

@@ -1,13 +1,24 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Line, Rect, Text as SvgText } from 'react-native-svg';
 import { useData } from '../../src/context/DataContext';
+import { useSettings } from '../../src/context/SettingsContext';
 import { GlassCard } from '../../src/components/GlassCard';
 import { FearGreedGauge } from '../../src/components/FearGreedGauge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
-import { Colors, Typography, Spacing, Fonts } from '../../src/constants/theme';
+import { Colors, Typography, Spacing, Numbers, Fonts } from '../../src/constants/theme';
 import { IS_WEB } from '../../src/services/api';
+import { fearGreedColor } from '../../src/services/gauge';
+import { formatCompactMoney } from '../../src/services/format';
 import { InfoButton } from '../../src/components/InfoButton';
+import type { FearGreedEntry } from '../../src/types';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shortDate = (seconds: string): string => {
+  const d = new Date(Number(seconds) * 1000);
+  return Number.isFinite(d.getTime()) ? `${d.getDate()} ${MONTHS[d.getMonth()]}` : '';
+};
 
 const formatHashRate = (h: number): string => {
   if (!h) return '--';
@@ -23,8 +34,61 @@ const getCongestion = (count: number): { label: string; color: string } => {
   return { label: 'High', color: Colors.bearish };
 };
 
-export default function OnChainScreen() {
+/** The last 30 days of Fear & Greed as bars, with a 0, 50, 100 scale, dates, and today marked. */
+const FearGreedHistory = ({ history, width }: { history: FearGreedEntry[]; width: number }) => {
+  const days = history.slice(0, 30).reverse(); // oldest first
+  const AXIS = 26;
+  const H = 96;
+  const DATE_H = 16;
+  const W = Math.max(120, width - AXIS);
+  const slot = W / Math.max(1, days.length);
+  const y = (v: number) => (1 - Math.max(0, Math.min(100, v)) / 100) * H;
+  const last = days.length - 1;
+  return (
+    <Svg width={W + AXIS} height={H + DATE_H + 4}>
+      {[0, 50, 100].map((v) => (
+        <React.Fragment key={v}>
+          <Line x1={0} x2={W} y1={y(v)} y2={y(v)} stroke={Colors.cardBorder} strokeWidth={1} />
+          <SvgText fontFamily={Fonts.system} x={W + 5} y={y(v) + (v === 100 ? 9 : v === 0 ? -2 : 3.5)} fill={Colors.textTertiary} fontSize={10}>
+            {String(v)}
+          </SvgText>
+        </React.Fragment>
+      ))}
+      {days.map((e, i) => {
+        const v = Number.isFinite(e?.value) ? e.value : 50;
+        const today = i === last;
+        return (
+          <Rect
+            key={i}
+            x={i * slot + 1}
+            y={y(v)}
+            width={Math.max(1, slot - 2)}
+            height={H - y(v)}
+            rx={1.5}
+            fill={fearGreedColor(v)}
+            fillOpacity={today ? 1 : 0.55}
+            stroke={today ? Colors.textPrimary : 'none'}
+            strokeWidth={today ? 1.5 : 0}
+          />
+        );
+      })}
+      {days.length > 1 && (
+        <>
+          <SvgText fontFamily={Fonts.system} x={0} y={H + DATE_H} fill={Colors.textTertiary} fontSize={10}>
+            {shortDate(days[0]!.timestamp)}
+          </SvgText>
+          <SvgText fontFamily={Fonts.system} x={last * slot + slot / 2} y={H + DATE_H} fill={Colors.textPrimary} fontSize={10} fontWeight="600" textAnchor="end">
+            {`Today ${days[last]!.value}`}
+          </SvgText>
+        </>
+      )}
+    </Svg>
+  );
+};
+
+export default function MarketScreen() {
   const data = useData();
+  const settings = useSettings();
   const fg = data?.fearGreed;
   const oc = data?.onChain;
   const price = data?.price;
@@ -35,6 +99,10 @@ export default function OnChainScreen() {
   const lastMonth = fgHistory?.[30] ?? fgHistory?.[fgHistory.length - 1];
 
   const congestion = getCongestion(oc?.mempool?.count ?? 0);
+  // Market size in your chosen currency, at today's rate (both figures are today's).
+  const ccy = settings.currency;
+  const fx = ccy === 'GBP' && price?.price && price?.price_gbp ? price.price_gbp / price.price : 1;
+  const money = (n: number | null | undefined) => (n == null || !Number.isFinite(n) || n <= 0 ? '--' : formatCompactMoney(n * fx, ccy));
 
   if (data?.isLoading && !price) {
     return (
@@ -49,28 +117,31 @@ export default function OnChainScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Market</Text>
+      </View>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={data?.isLoading ?? false} onRefresh={() => data?.refresh?.()} tintColor={Colors.accent} />}
       >
-        {/* Fear & Greed Deep Dive */}
+        {/* Mood */}
         <View style={styles.headerRow}>
-          <Text style={[styles.sectionHeader, { marginTop: 0 }]}>Fear & Greed</Text>
+          <Text style={[styles.sectionHeader, { marginTop: 0 }]}>Mood: Fear &amp; Greed</Text>
           <InfoButton term="fearGreed" size={20} />
         </View>
         <Text style={styles.plainNote}>
           How nervous (0) or excited (100) crypto investors are. Extreme fear has more often come near low points and
           extreme greed near peaks, but it can stay extreme for weeks.
         </Text>
-        {fg && (
+        {fg ? (
           <GlassCard style={styles.gaugeCard}>
             <FearGreedGauge value={fg?.current?.value ?? 50} label={fg?.current?.value_classification ?? 'Neutral'} size={220} />
             <View style={styles.fgHistoryRow}>
               {[
                 { label: 'Yesterday', entry: yesterday },
-                { label: 'Last Week', entry: lastWeek },
-                { label: 'Last Month', entry: lastMonth },
+                { label: 'Last week', entry: lastWeek },
+                { label: 'Last month', entry: lastMonth },
               ].map((item, i) => (
                 <View key={i} style={styles.fgHistoryCol}>
                   <Text style={styles.fgHistLabel}>{item.label}</Text>
@@ -80,42 +151,81 @@ export default function OnChainScreen() {
               ))}
             </View>
           </GlassCard>
-        )}
-
-        {/* Fear & Greed 30d mini chart */}
-        {fgHistory.length > 1 && (
-          <GlassCard style={styles.fgChartCard}>
-            <Text style={styles.cardTitle}>30-Day Fear & Greed</Text>
-            <View style={styles.fgChart}>
-              {fgHistory.slice(0, 30).reverse().map((entry, i, arr) => {
-                const v = entry?.value ?? 50;
-                const color = v <= 25 ? Colors.bearish : v <= 45 ? '#FF6D00' : v <= 55 ? Colors.neutral : v <= 75 ? '#66BB6A' : Colors.bullish;
-                return (
-                  <View key={i} style={{ flex: 1, justifyContent: 'flex-end', height: 60 }}>
-                    <View style={{ height: `${v}%`, backgroundColor: color, borderRadius: 1, marginHorizontal: 0.5 }} />
-                  </View>
-                );
-              })}
-            </View>
+        ) : (
+          <GlassCard>
+            <Text style={styles.plainNote}>
+              Fear &amp; Greed did not load. {data?.failedSources?.find((s) => s.startsWith('Fear')) ?? ''}
+            </Text>
           </GlassCard>
         )}
 
-        {/* Network Stats */}
-        <Text style={styles.sectionHeader}>Network Stats</Text>
+        {fgHistory.length > 1 && (
+          <GlassCard>
+            <Text style={styles.cardTitle}>The last 30 days</Text>
+            <FearGreedHistory history={fgHistory} width={Dimensions.get('window').width - 32 - 32} />
+          </GlassCard>
+        )}
+
+        {/* Market size */}
+        <Text style={styles.sectionHeader}>Market size</Text>
+        <Text style={styles.plainNote}>The size of the market and how much is being traded.</Text>
+        <GlassCard>
+          <View style={styles.statRow}>
+            <View style={styles.labelRow}>
+              <Text style={styles.statLabel}>Market cap</Text>
+              <InfoButton term="marketCap" />
+            </View>
+            <Text style={styles.statValue}>{money(price?.market_cap)}</Text>
+          </View>
+        </GlassCard>
+        <GlassCard>
+          <View style={styles.statRow}>
+            <View style={styles.labelRow}>
+              <Text style={styles.statLabel}>24h volume</Text>
+              <InfoButton term="volume" />
+            </View>
+            <Text style={styles.statValue}>{money(price?.volume_24h)}</Text>
+          </View>
+        </GlassCard>
+        <GlassCard>
+          <View style={styles.statRow}>
+            <View style={styles.labelRow}>
+              <Text style={styles.statLabel}>BTC dominance</Text>
+              <InfoButton term="dominance" />
+            </View>
+            <Text style={styles.statValue}>{data?.btcDominance != null ? `${data.btcDominance.toFixed(1)}%` : '--'}</Text>
+          </View>
+        </GlassCard>
+        <GlassCard>
+          <View style={styles.statRow}>
+            <View style={styles.labelRow}>
+              <Text style={styles.statLabel}>Coins in circulation</Text>
+              <InfoButton term="supply" />
+            </View>
+            <Text style={styles.statValue}>
+              {price?.circulating_supply != null
+                ? `${(price.circulating_supply / 1e6).toFixed(2)}M (${((price.circulating_supply / 21e6) * 100).toFixed(1)}%)`
+                : '--'}
+            </Text>
+          </View>
+        </GlassCard>
+
+        {/* Network */}
+        <Text style={styles.sectionHeader}>Network (on-chain)</Text>
         <Text style={styles.plainNote}>
-          How busy and secure the Bitcoin network is. These describe the network's health; they are not price signals.
+          How busy and secure the Bitcoin network is. These describe the network&apos;s health; they are not price signals.
         </Text>
         {IS_WEB && (
           <GlassCard style={styles.webNotice}>
             <Text style={styles.webNoticeText}>
-              Live on-chain network metrics (hash rate, mempool, fees) load in the installed mobile app. They are unavailable in the web preview due to browser restrictions.
+              Live network figures (hash rate, mempool, fees) load in the installed phone app. A web browser cannot fetch them.
             </Text>
           </GlassCard>
         )}
         <GlassCard>
           <View style={styles.statRow}>
             <View style={styles.labelRow}>
-              <Text style={styles.statLabel}>Hash Rate</Text>
+              <Text style={styles.statLabel}>Hash rate</Text>
               <InfoButton term="hashRate" />
             </View>
             <Text style={styles.statValue}>{formatHashRate(oc?.hashRate ?? 0)}</Text>
@@ -133,7 +243,9 @@ export default function OnChainScreen() {
             </Text>
           </View>
           {oc?.difficulty?.remainingBlocks != null && (
-            <Text style={styles.statSub}>{oc.difficulty.remainingBlocks} blocks until next adjustment ({oc?.difficulty?.progressPercent?.toFixed?.(1) ?? 0}%)</Text>
+            <Text style={styles.statSub}>
+              {oc.difficulty.remainingBlocks.toLocaleString('en-GB')} blocks until the next adjustment ({oc?.difficulty?.progressPercent?.toFixed?.(1) ?? 0}% of the way)
+            </Text>
           )}
         </GlassCard>
 
@@ -144,7 +256,7 @@ export default function OnChainScreen() {
               <InfoButton term="mempool" />
             </View>
             <View style={styles.congestionRow}>
-              <Text style={styles.statValue}>{(oc?.mempool?.count ?? 0).toLocaleString()} txns</Text>
+              <Text style={styles.statValue}>{(oc?.mempool?.count ?? 0).toLocaleString('en-GB')} waiting</Text>
               <View style={[styles.congestionBadge, { backgroundColor: congestion.color + '33' }]}>
                 <Text style={[styles.congestionText, { color: congestion.color }]}>{congestion.label}</Text>
               </View>
@@ -154,68 +266,20 @@ export default function OnChainScreen() {
 
         <GlassCard>
           <View style={[styles.labelRow, { marginBottom: Spacing.md }]}>
-            <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Fee Estimates (sat/vB)</Text>
+            <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Fee estimates (sat/vB)</Text>
             <InfoButton term="fees" />
           </View>
           <View style={styles.feeRow}>
             {[
-              { label: 'High', value: oc?.fees?.fastestFee, color: Colors.bearish },
-              { label: 'Medium', value: oc?.fees?.halfHourFee, color: Colors.neutral },
-              { label: 'Low', value: oc?.fees?.hourFee, color: Colors.bullish },
+              { label: 'Fast', value: oc?.fees?.fastestFee, color: Colors.bearish },
+              { label: 'Half an hour', value: oc?.fees?.halfHourFee, color: Colors.neutral },
+              { label: 'An hour', value: oc?.fees?.hourFee, color: Colors.bullish },
             ].map((f, i) => (
               <View key={i} style={styles.feeCol}>
                 <Text style={[styles.feeLabel, { color: f.color }]}>{f.label}</Text>
                 <Text style={styles.feeValue}>{f?.value ?? '--'}</Text>
               </View>
             ))}
-          </View>
-        </GlassCard>
-
-        {/* Market Metrics */}
-        <Text style={styles.sectionHeader}>Market Metrics</Text>
-        <Text style={styles.plainNote}>The size of the market and how much is being traded.</Text>
-        <GlassCard>
-          <View style={styles.statRow}>
-            <View style={styles.labelRow}>
-              <Text style={styles.statLabel}>BTC Dominance</Text>
-              <InfoButton term="dominance" />
-            </View>
-            <Text style={styles.statValue}>{data?.btcDominance?.toFixed?.(1) ?? '--'}%</Text>
-          </View>
-        </GlassCard>
-        <GlassCard>
-          <View style={styles.statRow}>
-            <View style={styles.labelRow}>
-              <Text style={styles.statLabel}>24h Volume</Text>
-              <InfoButton term="volume" />
-            </View>
-            <Text style={styles.statValue}>
-              {price?.volume_24h != null ? `$${(price.volume_24h / 1e9).toFixed(1)}B` : '--'}
-            </Text>
-          </View>
-        </GlassCard>
-        <GlassCard>
-          <View style={styles.statRow}>
-            <View style={styles.labelRow}>
-              <Text style={styles.statLabel}>Market Cap</Text>
-              <InfoButton term="marketCap" />
-            </View>
-            <Text style={styles.statValue}>
-              {price?.market_cap != null ? `$${(price.market_cap / 1e12).toFixed(2)}T` : '--'}
-            </Text>
-          </View>
-        </GlassCard>
-        <GlassCard>
-          <View style={styles.statRow}>
-            <View style={styles.labelRow}>
-              <Text style={styles.statLabel}>Circulating Supply</Text>
-              <InfoButton term="supply" />
-            </View>
-            <Text style={styles.statValue}>
-              {price?.circulating_supply != null
-                ? `${(price.circulating_supply / 1e6).toFixed(2)}M (${((price.circulating_supply / 21e6) * 100).toFixed(1)}%)`
-                : '--'}
-            </Text>
           </View>
         </GlassCard>
 
@@ -227,10 +291,12 @@ export default function OnChainScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+  header: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  headerTitle: { ...Typography.heading },
   scroll: { flex: 1 },
-  content: { padding: Spacing.lg, gap: Spacing.md },
-  sectionHeader: { ...Typography.heading, marginTop: Spacing.sm },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.sm },
+  content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.md },
+  sectionHeader: { ...Typography.subheading, marginTop: Spacing.sm },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   plainNote: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, marginTop: -Spacing.xs },
   webNotice: { borderColor: Colors.accent + '55', borderWidth: 1 },
@@ -239,11 +305,9 @@ const styles = StyleSheet.create({
   fgHistoryRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: Spacing.lg },
   fgHistoryCol: { alignItems: 'center' },
   fgHistLabel: { ...Typography.caption, color: Colors.textTertiary },
-  fgHistValue: { ...Typography.subheading, fontFamily: Fonts.mono, marginTop: 2 },
+  fgHistValue: { ...Typography.subheading, ...Numbers, marginTop: 2 },
   fgHistClass: { ...Typography.caption, color: Colors.textSecondary, marginTop: 1 },
-  fgChartCard: {},
   cardTitle: { ...Typography.body, fontWeight: '600', marginBottom: Spacing.md },
-  fgChart: { flexDirection: 'row', height: 60 },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statLabel: { ...Typography.body, color: Colors.textSecondary },
   statValue: { ...Typography.monoData },

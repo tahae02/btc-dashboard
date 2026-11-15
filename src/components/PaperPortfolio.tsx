@@ -12,6 +12,7 @@ import { TradeDetailSheet } from './TradeDetailSheet';
 import { PaperDecisionSheet } from './PaperDecisionSheet';
 import { PaperScorecardCard } from './PaperScorecardCard';
 import { PaperGuideCard } from './PaperGuideCard';
+import { RealVsPaperChart } from './RealVsPaperChart';
 import { summariseHoldings, type TradeSide } from '../services/journal';
 import {
   ADVICE_LABEL, SCENARIO_LABEL, ORDER_STATUS_LABEL, VS_APP_LABEL, timeline, compareWithApp, moveAfter, serialisePaperBackup,
@@ -226,12 +227,8 @@ export const PaperPortfolio = () => {
               <InfoButton term="paperTrading" />
             </View>
             <Text style={styles.body}>
-              Make the trades the advice calls for, with pretend money at real prices. Nothing is bought and nothing here
-              touches your real holdings. Each decision records the full picture at that moment, plus whose advice you
-              followed and why, so over the months you build up a record of how well the advice really does.
-            </Text>
-            <Text style={[styles.body, { marginTop: Spacing.sm }]}>
-              Start on your next regular buy day: tap Paper buy and the app&apos;s amount is filled in for you.
+              Make the trades the advice calls for, with pretend money at real prices, and see over the months how well
+              it really does. Nothing here touches your real holdings.
             </Text>
           </GlassCard>
         ) : (
@@ -305,6 +302,9 @@ export const PaperPortfolio = () => {
           </Pressable>
         </View>
 
+        {/* Before the first decision, the guide sits right under the buttons. */}
+        {!hasAnything && <PaperGuideCard initiallyOpen />}
+
         <PaperSettingsCard
           open={settingsOpen}
           onToggle={() => setSettingsOpen((o) => !o)}
@@ -341,6 +341,9 @@ export const PaperPortfolio = () => {
         )}
 
         {card.decisions > 0 && <PaperScorecardCard card={card} />}
+        {card.since != null && card.realVsPaper && (
+          <RealVsPaperChart real={journal.trades} paper={book.trades} since={card.since} live={live} />
+        )}
 
         {items.map((d) =>
           d.kind === 'trade' ? (
@@ -366,7 +369,7 @@ export const PaperPortfolio = () => {
           </Text>
         )}
 
-        <PaperGuideCard initiallyOpen={!hasAnything} />
+        {hasAnything && <PaperGuideCard initiallyOpen={false} />}
 
         <GlassCard>
           <Text style={styles.sectionTitle}>Paper backup</Text>

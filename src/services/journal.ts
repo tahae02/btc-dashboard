@@ -416,8 +416,14 @@ export interface HoldingsSummary {
   invested: number;
   /** Average cost in both currencies; the other one at today's rate. */
   avgCostIn: Record<Currency, number | null>;
-  /** Some trades were in the other currency and converted at today's rate. */
+  /** Some money was in the other currency and had to be converted. */
   converted: boolean;
+  /**
+   * Some of that conversion used today's exchange rate: the starting balance,
+   * or a trade without both market prices recorded. Every other trade is
+   * converted at the rate on its own day.
+   */
+  atTodaysRate: boolean;
   /** A starting balance is included. */
   hasOpening: boolean;
   /** Trades dated at or before the starting balance, so already inside it. */
@@ -438,15 +444,67 @@ export const convert = (amount: number, from: Currency, to: Currency, live: Live
 };
 
 /**
+ * Pounds per dollar on the day of a trade, implied by the BTC price it
+ * recorded in each currency. Null unless it recorded both.
+ */
+export const tradeFxGbpPerUsd = (t: { marketPriceUsd: number | null; marketPriceGbp: number | null }): number | null =>
+  isPos(t.marketPriceUsd) && isPos(t.marketPriceGbp) ? t.marketPriceGbp / t.marketPriceUsd : null;
+
+/**
+ * Convert an amount from a trade at the exchange rate on that trade's day,
+ * falling back to today's rate only when the trade did not record both
+ * prices. `atToday` says which was used.
+ */
+export const convertAtTrade = (
+  amount: number,
+  from: Currency,
+  to: Currency,
+  t: { marketPriceUsd: number | null; marketPriceGbp: number | null },
+  live: LivePrices
+): { value: number; atToday: boolean } => {
+  if (from === to) return { value: amount, atToday: false };
+  const fx = tradeFxGbpPerUsd(t);
+  if (fx) return { value: from === 'USD' ? amount * fx : amount / fx, atToday: false };
+  return { value: convert(amount, from, to, live), atToday: true };
+};
+
+/**
+ * What the trade forms start with: the currency of the trade you logged most
+ * recently (or of your starting balance), else pounds; and the fee rate that
+ * trade paid, for a one-tap "use my last fee rate". A pound buy can no longer
+ * be saved as dollars just because the display was set to dollars.
+ */
+export const tradeDefaults = (
+  trades: Trade[],
+  opening: OpeningPosition | null
+): { currency: Currency; feeRate: number | null } => {
+  const latest = [...trades].sort((a, b) => b.createdAt - a.createdAt)[0];
+  const currency = latest?.currency ?? opening?.currency ?? 'GBP';
+  const withFee = [...trades].filter((t) => t.fee > 0 && t.fiat > 0).sort((a, b) => b.createdAt - a.createdAt)[0];
+  return { currency, feeRate: withFee ? withFee.fee / withFee.fiat : null };
+};
+
+/**
+ * What a trade paid (or got) per BTC, fees included, in `currency`: the
+ * total divided by the BTC. Converted at the trade's own day's rate when it
+ * was in the other currency. This is the figure the average cost is made of.
+ */
+export const tradePricePerBtc = (t: Trade, currency: Currency, live: LivePrices): number =>
+  convertAtTrade(t.fiat / t.btc, t.currency, currency, t, live).value;
+
+/** Whether a trade is already counted inside the starting balance. */
+export const isCoveredByOpening = (t: Trade, opening: OpeningPosition | null): boolean =>
+  opening != null && t.time <= opening.time;
+
+/**
  * Average-cost holdings, in `currency`.
  *
  * A sell removes cost at the running average, so realised P&L is the proceeds
  * minus what those coins cost on average. Trades in the other currency are
- * converted at today's rate, which is approximate, and flagged as such.
+ * converted at the exchange rate on their own day, from the BTC price each
+ * recorded in pounds and dollars. The starting balance, and any trade missing
+ * one of those prices, is converted at today's rate and flagged as such.
  */
-/** Whether a trade is already counted inside the starting balance. */
-export const isCoveredByOpening = (t: Trade, opening: OpeningPosition | null): boolean =>
-  opening != null && t.time <= opening.time;
 
 export const summariseHoldings = (
   trades: Trade[],
@@ -459,6 +517,7 @@ export const summariseHoldings = (
   let realised = 0;
   let invested = 0;
   let converted = false;
+  let atTodaysRate = false;
   let oversold = false;
   let buys = 0;
   let sells = 0;
@@ -468,7 +527,7 @@ export const summariseHoldings = (
     btc = opening.btc;
     cost = convert(opening.invested, opening.currency, currency, live);
     invested = cost;
-    if (opening.currency !== currency) converted = true;
+    if (opening.currency !== currency) converted = atTodaysRate = true;
   }
 
   for (const t of sortTrades(trades)) {
@@ -477,7 +536,9 @@ export const summariseHoldings = (
       continue;
     }
     if (t.currency !== currency) converted = true;
-    const fiat = convert(t.fiat, t.currency, currency, live);
+    const conv = convertAtTrade(t.fiat, t.currency, currency, t, live);
+    if (conv.atToday) atTodaysRate = true;
+    const fiat = conv.value;
     if (t.side === 'buy') {
       btc += t.btc;
       cost += fiat;
@@ -516,6 +577,7 @@ export const summariseHoldings = (
     realised,
     invested,
     converted,
+    atTodaysRate,
     hasOpening: opening != null,
     covered,
     oversold,
@@ -674,6 +736,33 @@ export const tradesToCsv = (trades: Trade[]): string => {
   );
   return [header.join(','), ...rows].join('\n');
 };
+
+// ===== Filtering the trade list =====
+
+export interface TradeFilter {
+  side: 'all' | TradeSide;
+  /** What the advice was when the trade was made; 'none' for trades without a stamp. */
+  action: 'all' | 'none' | Action;
+  /** Calendar year, local time. */
+  year: 'all' | number;
+}
+
+export const ALL_TRADES: TradeFilter = { side: 'all', action: 'all', year: 'all' };
+
+export const filterTrades = (trades: Trade[], f: TradeFilter): Trade[] =>
+  trades.filter(
+    (t) =>
+      (f.side === 'all' || t.side === f.side) &&
+      (f.action === 'all' || (f.action === 'none' ? t.signal == null : t.signal?.action === f.action)) &&
+      (f.year === 'all' || new Date(t.time).getFullYear() === f.year)
+  );
+
+/** The years and advice tiers that actually occur, for the filter chips. */
+export const tradeFilterOptions = (trades: Trade[]): { years: number[]; actions: Action[]; unstamped: boolean } => ({
+  years: [...new Set(trades.map((t) => new Date(t.time).getFullYear()))].sort((a, b) => b - a),
+  actions: ACTIONS.filter((a) => trades.some((t) => t.signal?.action === a)),
+  unstamped: trades.some((t) => t.signal == null),
+});
 
 // ===== Your buys, grouped by the signal they were made on =====
 

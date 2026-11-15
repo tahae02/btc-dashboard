@@ -12,7 +12,7 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.accent,
-        tabBarInactiveTintColor: '#666666',
+        tabBarInactiveTintColor: Colors.textTertiary,
         tabBarStyle: {
           backgroundColor: 'rgba(18,18,26,0.95)',
           borderTopColor: Colors.cardBorder,
@@ -24,7 +24,7 @@ export default function TabsLayout() {
             default: {},
           }),
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
@@ -63,8 +63,10 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="onchain"
         options={{
-          title: 'On-Chain',
-          tabBarIcon: ({ color, size }) => <Ionicons name="link" size={size} color={color} />,
+          // Mood (Fear & Greed), market size and network health. It was called
+          // On-Chain, but Fear & Greed is mood, not on-chain data.
+          title: 'Market',
+          tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart" size={size} color={color} />,
           tabBarButtonTestID: 'tab-onchain',
         }}
       />

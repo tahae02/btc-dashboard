@@ -40,6 +40,7 @@ import { describeMarket, ACTION_PLAIN } from './plainEnglish';
 import { isFearGreedFresh } from './snapshot';
 import { ENDPOINTS } from './endpoints';
 import { describeFetchError } from './http';
+import { levelDistance } from './levels';
 
 export const REPORT_TIMEFRAMES: Timeframe[] = ['1H', '4H', '1D', '1W'];
 
@@ -413,11 +414,10 @@ const overallSection = (a: TimeframeAnalysis, input: ReportInput): string[] => {
     out.push(
       '',
       '  Levels and expected range (volatility bands from ATR, not forecasts):',
-      `    Nearest support    ${pr.nextSupport != null ? `${both(pr.nextSupport)} (${(((p.price - pr.nextSupport) / p.price) * 100).toFixed(1)}% below)` : 'n/a'}` +
-        // Levels come from closed bars, so the live price can already be through them.
-        (pr.nextSupport != null && p.price < pr.nextSupport ? '  [live price is already below this level]' : ''),
-      `    Nearest resistance ${pr.nextResistance != null ? `${both(pr.nextResistance)} (${(((pr.nextResistance - p.price) / p.price) * 100).toFixed(1)}% above)` : 'n/a'}` +
-        (pr.nextResistance != null && p.price > pr.nextResistance ? '  [live price is already above this level]' : ''),
+      // Levels come from closed bars, so the live price can already be through
+      // them. Same wording as the Signals tab (src/services/levels.ts).
+      `    Nearest support    ${pr.nextSupport != null ? `${both(pr.nextSupport)} (${levelDistance(p.price, pr.nextSupport, 'support')?.text ?? 'n/a'})` : 'n/a'}`,
+      `    Nearest resistance ${pr.nextResistance != null ? `${both(pr.nextResistance)} (${levelDistance(p.price, pr.nextResistance, 'resistance')?.text ?? 'n/a'})` : 'n/a'}`,
       `    Next 24h range     ${both(Math.max(0, pr.range1d.low))} to ${both(pr.range1d.high)}`,
       `    Next 7d range      ${both(Math.max(0, pr.range7d.low))} to ${both(pr.range7d.high)}`,
       `    ${pr.note}`

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   lastClosedIndex, callOnDay, replayCalls, reconstructStamp, scoreCalls, parseSignalLog, appendToLog, fearGreedAt,
   REPLAY_WARMUP, type DayCall, type LoggedCall,
+  adviceRuns,
 } from '../src/services/trackRecord';
 import { generateSyntheticSeries } from '../backtest/data';
 import type { OHLCVCandle } from '../src/types';
@@ -169,5 +170,26 @@ describe('trade detail at the time', () => {
     for (const k of ['regime', 'rsi', 'atrPct', 'priceVsSma200Pct', 'sma200', 'stretchScore', 'momentumScore'] as const) {
       assert.ok(withFg[k] != null, `${k} was not recorded`);
     }
+  });
+});
+
+describe('adviceRuns', () => {
+  const D = 86400000;
+  const call = (day: number, action: DayCall['action']): DayCall =>
+    ({ day: day * D, action, targetAllocation: 0.5, dcaMultiplier: 1, conviction: 50, regimeScore: 0, atr: null });
+
+  test('merges consecutive days with the same advice', () => {
+    const runs = adviceRuns([call(1, 'HOLD'), call(2, 'HOLD'), call(3, 'ACCUMULATE'), call(4, 'HOLD')]);
+    assert.deepEqual(runs.map((r) => [r.action, r.days]), [['HOLD', 2], ['ACCUMULATE', 1], ['HOLD', 1]]);
+  });
+
+  test('a gap in the history starts a new run', () => {
+    const runs = adviceRuns([call(1, 'HOLD'), call(5, 'HOLD')]);
+    assert.equal(runs.length, 2);
+  });
+
+  test('only counts days from the start given, in date order', () => {
+    const runs = adviceRuns([call(3, 'REDUCE'), call(1, 'HOLD'), call(2, 'HOLD')], 2 * D);
+    assert.deepEqual(runs.map((r) => [r.action, r.days]), [['HOLD', 1], ['REDUCE', 1]]);
   });
 });

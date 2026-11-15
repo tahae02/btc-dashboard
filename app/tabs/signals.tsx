@@ -10,10 +10,15 @@ import { GlassCard } from '../../src/components/GlassCard';
 import { SignalBadge } from '../../src/components/SignalBadge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
 import { TrackRecordCard } from '../../src/components/TrackRecordCard';
+import { AdviceHistoryStrip } from '../../src/components/AdviceHistoryStrip';
+import { useJournal } from '../../src/context/JournalContext';
+import { useTrackRecord } from '../../src/hooks/useTrackRecord';
+import { levelDistance } from '../../src/services/levels';
+import { formatMoney } from '../../src/services/format';
 import { InfoButton } from '../../src/components/InfoButton';
 import { useExplain } from '../../src/context/ExplainContext';
 import { ACTION_PLAIN } from '../../src/services/plainEnglish';
-import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../../src/constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts, Numbers } from '../../src/constants/theme';
 import type { IndicatorReading, IndicatorFamily } from '../../src/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -51,13 +56,27 @@ export default function SignalsScreen() {
     settings,
   });
 
+  const journal = useJournal();
+  // Replayed once here and shared by the history strip and the track record.
+  const track = useTrackRecord(journal.closedDaily, journal.config, journal.signalLog);
+
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = useCallback((name: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((p) => ({ ...p, [name]: !p[name] }));
   }, []);
+  // Each layer folds to one line until tapped, so the screen is not a wall of cards.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = useCallback((family: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOpenGroups((p) => ({ ...p, [family]: !p[family] }));
+  }, []);
 
   const price = data?.price?.price ?? 0;
+  // Levels and ranges in your chosen currency, at today's rate (they are today's levels).
+  const ccy = settings.currency;
+  const fx = ccy === 'GBP' && data?.price?.price && data?.price?.price_gbp ? data.price.price_gbp / data.price.price : 1;
+  const money = (n: number) => formatMoney(n * fx, ccy);
   const hasSignal = candles.length >= 200;
 
   if (data?.isLoading && !data?.price) {
@@ -77,6 +96,9 @@ export default function SignalsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Signals</Text>
+      </View>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -154,47 +176,70 @@ export default function SignalsScreen() {
               </Text>
             </Pressable>
 
-            {grouped.map((group) => (
-              <View key={group.family} style={styles.group}>
-                <Text style={styles.groupTitle}>{FAMILY_TITLE[group.family]}</Text>
-                {group.rows.map((reading: IndicatorReading) => {
-                  const isOpen = expanded[reading.name] ?? false;
-                  return (
-                    <Pressable key={reading.name} onPress={() => toggle(reading.name)}>
-                      <GlassCard style={styles.readingCard}>
-                        <View style={styles.readingHeader}>
-                          <View style={styles.readingLeft}>
-                            <View style={styles.labelRow}>
-                              <Text style={styles.readingName}>{reading.name}</Text>
-                              <InfoButton term={reading.term} />
+            {grouped.map((group) => {
+              const open = openGroups[group.family] ?? false;
+              return (
+                <View key={group.family} style={styles.group}>
+                  <Pressable
+                    onPress={() => toggleGroup(group.family)}
+                    style={styles.groupHead}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: open }}
+                  >
+                    <Text style={styles.groupTitle} numberOfLines={2}>{FAMILY_TITLE[group.family]}</Text>
+                    <View style={styles.groupBadges}>
+                      {group.rows.slice(0, 3).map((r) => (
+                        <View
+                          key={r.name}
+                          style={[
+                            styles.groupDot,
+                            { backgroundColor: r.signal === 'BULLISH' ? Colors.bullish : r.signal === 'BEARISH' ? Colors.bearish : Colors.textTertiary },
+                          ]}
+                        />
+                      ))}
+                      <Text style={styles.groupCount}>{group.rows.length}</Text>
+                      <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textSecondary} />
+                    </View>
+                  </Pressable>
+                  {open && group.rows.map((reading: IndicatorReading) => {
+                    const isOpen = expanded[reading.name] ?? false;
+                    return (
+                      <Pressable key={reading.name} onPress={() => toggle(reading.name)}>
+                        <GlassCard style={styles.readingCard}>
+                          <View style={styles.readingHeader}>
+                            <View style={styles.readingLeft}>
+                              <View style={styles.labelRow}>
+                                <Text style={styles.readingName}>{reading.name}</Text>
+                                <InfoButton term={reading.term} />
+                              </View>
+                              <Text style={styles.readingValue}>{reading.value}</Text>
                             </View>
-                            <Text style={styles.readingValue}>{reading.value}</Text>
+                            <View style={styles.readingRight}>
+                              {/* Stating the weight inline stops a context row
+                                  from reading like a buy or sell call. */}
+                              <Text style={styles.weightText}>{reading.weight}</Text>
+                              <SignalBadge signal={reading.signal} compact />
+                              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} style={{ marginLeft: 6 }} />
+                            </View>
                           </View>
-                          <View style={styles.readingRight}>
-                            {/* Stating the weight inline stops a context row
-                                from reading like a buy or sell call. */}
-                            <Text style={styles.weightText}>{reading.weight}</Text>
-                            <SignalBadge signal={reading.signal} compact />
-                            <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} style={{ marginLeft: 6 }} />
-                          </View>
-                        </View>
-                        {/* Plain English first, always visible; the technical
-                            detail is one tap away for anyone who wants it. */}
-                        <Text style={styles.readingPlain}>{reading.plain}</Text>
-                        {isOpen ? (
-                          <View style={styles.readingBody}>
-                            <Text style={styles.detailLabel}>The detail</Text>
-                            <Text style={styles.readingExplanation}>{reading.explanation}</Text>
-                          </View>
-                        ) : (
-                          <Text style={styles.moreHint}>Tap for the detail</Text>
-                        )}
-                      </GlassCard>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ))}
+                          {/* Plain English first, always visible; the technical
+                              detail is one tap away for anyone who wants it. */}
+                          <Text style={styles.readingPlain}>{reading.plain}</Text>
+                          {isOpen ? (
+                            <View style={styles.readingBody}>
+                              <Text style={styles.detailLabel}>The detail</Text>
+                              <Text style={styles.readingExplanation}>{reading.explanation}</Text>
+                            </View>
+                          ) : (
+                            <Text style={styles.moreHint}>Tap for the detail</Text>
+                          )}
+                        </GlassCard>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              );
+            })}
 
             {signal.projections && (
               <GlassCard>
@@ -202,28 +247,22 @@ export default function SignalsScreen() {
                   <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Levels &amp; expected range</Text>
                   <InfoButton term="expectedRange" />
                 </View>
-                {signal.projections.nextSupport != null && (
-                  <View style={styles.projRow}>
-                    <Text style={styles.projLabel}>↓ Nearest support</Text>
-                    <View>
-                      <Text style={styles.projValue}>${signal.projections.nextSupport.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                      {price > 0 && (
-                        <Text style={styles.projPct}>{(((price - signal.projections.nextSupport) / price) * 100).toFixed(1)}% below</Text>
-                      )}
+                {([
+                  ['support', '↓ Nearest support', signal.projections.nextSupport],
+                  ['resistance', '↑ Nearest resistance', signal.projections.nextResistance],
+                ] as const).map(([kind, label, level]) => {
+                  if (level == null) return null;
+                  const d = levelDistance(price, level, kind);
+                  return (
+                    <View key={kind} style={styles.projRow}>
+                      <Text style={styles.projLabel}>{label}</Text>
+                      <View style={styles.projRight}>
+                        <Text style={styles.projValue}>{money(level)}</Text>
+                        {d && <Text style={[styles.projPct, d.broken && { color: Colors.neutral }]}>{d.text}</Text>}
+                      </View>
                     </View>
-                  </View>
-                )}
-                {signal.projections.nextResistance != null && (
-                  <View style={styles.projRow}>
-                    <Text style={styles.projLabel}>↑ Nearest resistance</Text>
-                    <View>
-                      <Text style={styles.projValue}>${signal.projections.nextResistance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                      {price > 0 && (
-                        <Text style={styles.projPct}>{(((signal.projections.nextResistance - price) / price) * 100).toFixed(1)}% above</Text>
-                      )}
-                    </View>
-                  </View>
-                )}
+                  );
+                })}
                 {[
                   { label: 'Next 24h range', r: signal.projections.range1d },
                   { label: 'Next 7d range', r: signal.projections.range7d },
@@ -231,7 +270,7 @@ export default function SignalsScreen() {
                   <View key={row.label} style={styles.projRow}>
                     <Text style={styles.projLabel}>{row.label}</Text>
                     <Text style={styles.projValue}>
-                      ${Math.max(0, row.r.low).toLocaleString(undefined, { maximumFractionDigits: 0 })} – ${row.r.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      {money(Math.max(0, row.r.low))} to {money(row.r.high)}
                     </Text>
                   </View>
                 ))}
@@ -241,9 +280,10 @@ export default function SignalsScreen() {
           </>
         )}
 
-        {/* Runs on daily bars whatever the signal timeframe, since that is
-            what the engine's calls are scored against. */}
-        <TrackRecordCard />
+        {/* Both run on daily bars whatever the signal timeframe, since that
+            is what the engine's calls are scored against. */}
+        <AdviceHistoryStrip calls={track.calls} daily={journal.closedDaily} />
+        <TrackRecordCard state={track} />
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -254,7 +294,9 @@ export default function SignalsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   scroll: { flex: 1 },
-  content: { padding: Spacing.lg, gap: Spacing.md },
+  header: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  headerTitle: { ...Typography.heading },
+  content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.md },
   sectionTitle: { ...Typography.subheading, marginBottom: Spacing.md },
   bodyText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22 },
   regimeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
@@ -267,24 +309,33 @@ const styles = StyleSheet.create({
   metaGrid: { flexDirection: 'row', marginTop: Spacing.lg, gap: Spacing.md },
   metaCell: { flex: 1 },
   metaLabel: { ...Typography.caption, color: Colors.textTertiary },
-  metaValue: { ...Typography.subheading, fontFamily: Fonts.mono, marginTop: 2 },
+  metaValue: { ...Typography.subheading, ...Numbers, marginTop: 2 },
   metaHint: { ...Typography.caption, color: Colors.textTertiary, fontSize: 11, marginTop: 2 },
   disclaimer: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: Spacing.lg },
   group: { gap: Spacing.sm },
-  groupTitle: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700', marginTop: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5 },
+  groupHead: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm,
+    backgroundColor: Colors.card, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.cardBorder,
+    paddingHorizontal: Spacing.md, paddingVertical: 12,
+  },
+  groupTitle: { ...Typography.body, fontSize: 14, color: Colors.textPrimary, fontWeight: '600', flex: 1 },
+  groupBadges: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  groupDot: { width: 9, height: 9, borderRadius: 5 },
+  groupCount: { ...Typography.caption, color: Colors.textSecondary, marginLeft: 2, marginRight: 2 },
   readingCard: { paddingVertical: Spacing.md },
   readingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   readingLeft: { flex: 1 },
   readingName: { ...Typography.body, fontWeight: '600' },
   readingValue: { ...Typography.monoData, color: Colors.textSecondary, marginTop: 2 },
   readingRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  weightText: { ...Typography.caption, color: Colors.textTertiary, fontSize: 10 },
+  weightText: { ...Typography.caption, color: Colors.textSecondary, fontSize: 11 },
   readingBody: { marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
   readingExplanation: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22, fontSize: 15 },
   projRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   projLabel: { ...Typography.body, color: Colors.textSecondary },
   projValue: { ...Typography.monoData, textAlign: 'right' },
-  projPct: { ...Typography.caption, color: Colors.textTertiary, textAlign: 'right' },
+  projRight: { alignItems: 'flex-end', flexShrink: 1, marginLeft: Spacing.md },
+  projPct: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'right' },
   projNote: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   key: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, paddingHorizontal: Spacing.xs },

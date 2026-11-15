@@ -3,9 +3,8 @@ import { Modal, View, Text, TextInput, Pressable, ScrollView, StyleSheet, Keyboa
 import { SegmentedButtons } from 'react-native-paper';
 import { useData } from '../context/DataContext';
 import { useJournal } from '../context/JournalContext';
-import { useSettings } from '../context/SettingsContext';
 import { fetchOHLCV, fetchFearGreedHistory } from '../services/api';
-import { parseTradeForm, fillFromMarket, priceAt, makeId, type TradeSide, type PriceSeries, type SignalStamp, type Trade } from '../services/journal';
+import { parseTradeForm, fillFromMarket, priceAt, makeId, tradeDefaults, parseAmount, type TradeSide, type PriceSeries, type SignalStamp, type Trade } from '../services/journal';
 import { reconstructStamp } from '../services/trackRecord';
 import { ACTION_LABEL } from '../services/signalEngine';
 import { TIMEFRAME_MS } from '../services/candles';
@@ -23,14 +22,15 @@ type When = 'now' | 'earlier';
 
 export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
   const data = useData();
-  const settings = useSettings();
   const journal = useJournal();
 
   const [side, setSide] = useState<TradeSide>(initialSide);
   const [when, setWhen] = useState<When>('now');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
-  const [currency, setCurrency] = useState<Currency>(settings.currency);
+  // Your last trade's currency, else pounds; never the display setting.
+  const defaults = useMemo(() => tradeDefaults(journal.trades, journal.opening), [journal.trades, journal.opening]);
+  const [currency, setCurrency] = useState<Currency>(defaults.currency);
   const [total, setTotal] = useState('');
   const [btc, setBtc] = useState('');
   const [price, setPrice] = useState('');
@@ -48,14 +48,16 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
     setWhen('now');
     setDate(toDateInput(now));
     setTime(toTimeInput(now));
-    setCurrency(settings.currency);
+    setCurrency(defaults.currency);
     setTotal('');
     setBtc('');
     setPrice('');
     setFee('');
     setNote('');
     setError(null);
-  }, [visible, initialSide, settings.currency]);
+    // Only when the sheet opens: logging a trade must not reset an open form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialSide]);
 
   // An error from a previous Save attempt is stale once anything changes.
   useEffect(() => setError(null), [side, when, date, time, currency, total, btc, price, fee]);
@@ -273,6 +275,20 @@ export const AddTradeSheet = ({ visible, initialSide, onClose }: Props) => {
               </View>
             </View>
 
+            {(() => {
+              // One tap to fill the fee at the rate your last trade paid.
+              const t = parseAmount(total);
+              if (defaults.feeRate == null || fee.trim() !== '' || t == null || !(t > 0)) return null;
+              const amount = Math.round(t * defaults.feeRate * 100) / 100;
+              return (
+                <Pressable onPress={() => setFee(amount.toFixed(2))} accessibilityRole="button" style={styles.feeHint}>
+                  <Text style={styles.feeHintText}>
+                    Use your last fee rate, {(defaults.feeRate * 100).toFixed(2)}%: {formatMoney(amount, currency)}
+                  </Text>
+                </Pressable>
+              );
+            })()}
+
             <View style={styles.row}>
               <View style={styles.flex}>
                 <Text style={styles.label}>BTC {side === 'buy' ? 'bought' : 'sold'}</Text>
@@ -389,6 +405,8 @@ const styles = StyleSheet.create({
   ccy: { width: 150 },
   ccyRow: { marginTop: Spacing.md },
   feeCol: { width: 110 },
+  feeHint: { alignSelf: 'flex-start', paddingVertical: 4 },
+  feeHintText: { ...Typography.caption, color: Colors.accent, fontWeight: '600' },
   segBtn: { borderColor: Colors.cardBorder },
   input: {
     ...Typography.monoData, backgroundColor: Colors.elevated, borderRadius: BorderRadius.sm,
