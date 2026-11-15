@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { scorePaper, paperHeadlines, paperStart, paperReviewReport, MIN_CALLS } from '../src/services/paperReview';
+import { scorePaper, paperHeadlines, paperStart, paperReviewReport, MIN_CALLS, avgPaidSeries } from '../src/services/paperReview';
 import { EMPTY_BOOK, type PaperTrade, type PaperOrder, type PaperSkip, type PaperBook, type DecisionMeta, type BriefCall } from '../src/services/paper';
 import type { SignalStamp, Trade } from '../src/services/journal';
 
@@ -221,5 +221,20 @@ describe('report for /paper-review', () => {
 
   test('an empty record still reads sensibly', () => {
     assert.match(paperReviewReport(scorePaper(EMPTY_BOOK)), /None yet/);
+  });
+});
+
+describe('avgPaidSeries', () => {
+  const mk = (time: number, fiat: number, btc: number, side: 'buy' | 'sell' = 'buy') =>
+    ({ id: `x${time}`, side, time, fiat, btc, currency: 'GBP', unitPrice: null, fee: 0, marketPriceUsd: null, marketPriceGbp: null, signal: null, note: '', createdAt: time }) as any;
+
+  test('the running average after each buy since paper trading began', () => {
+    const pts = avgPaidSeries([mk(1, 100, 0.002), mk(5, 500, 0.01), mk(9, 300, 0.004)], 3, { usd: 100000, gbp: 80000 });
+    assert.deepEqual(pts.map((p) => [p.time, Math.round(p.avgPrice)]), [[5, 50000], [9, 57143]]);
+  });
+
+  test('sells do not move it', () => {
+    const pts = avgPaidSeries([mk(1, 500, 0.01), mk(2, 900, 0.01, 'sell')], 0, { usd: 100000, gbp: 80000 });
+    assert.equal(pts.length, 1);
   });
 });

@@ -323,6 +323,31 @@ const avgPaid = (trades: Trade[], since: number, live: LivePrices): AvgPaid | nu
   return buys && btc > 0 ? { buys, avgPrice: money / btc } : null;
 };
 
+export interface AvgPaidPoint {
+  time: number;
+  /** Average paid per BTC, in pounds, over buys from `since` up to and including this one. */
+  avgPrice: number;
+}
+
+/**
+ * The running average price per BTC after each buy since `since`, in pounds,
+ * fees included, converted the same way as the scorecard's figure. Drawn as
+ * two lines, real and paper, so you can see whether following the advice
+ * would have bought more cheaply than what you actually did.
+ */
+export const avgPaidSeries = (trades: Trade[], since: number, live: LivePrices): AvgPaidPoint[] => {
+  let money = 0;
+  let btc = 0;
+  const out: AvgPaidPoint[] = [];
+  for (const t of [...trades].sort((a, b) => a.time - b.time)) {
+    if (t.side !== 'buy' || t.time < since) continue;
+    money += toGbpThen(t.fiat, t.currency, t.marketPriceUsd, t.marketPriceGbp) ?? convert(t.fiat, t.currency, 'GBP', live);
+    btc += t.btc;
+    if (btc > 0) out.push({ time: t.time, avgPrice: money / btc });
+  }
+  return out;
+};
+
 // ===== The scorecard =====
 
 /** When paper trading began: the first decision of any kind. */

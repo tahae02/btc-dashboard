@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   parseTrades, serialiseBackup, mergeTrades, parseAmount, parseLocalDateTime, parseTradeForm,
   summariseHoldings, priceAt, tradeOutcomes, tradesToCsv, groupBuysBySignal, resolveTradeFigures, fillFromMarket,
-  parseOpening, parseOpeningForm, parseBackup, isCoveredByOpening, moveInMoney, worthNow, tradeBtcValue, type Trade, type SignalStamp, type OpeningPosition,
+  parseOpening, parseOpeningForm, parseBackup, isCoveredByOpening, moveInMoney, worthNow, tradeBtcValue,
+  convertAtTrade, tradeFxGbpPerUsd, tradePricePerBtc, tradeDefaults, type Trade, type SignalStamp, type OpeningPosition,
 } from '../src/services/journal';
 import { formatPct, formatMoney, formatBtc, isFlat } from '../src/services/format';
 import type { OHLCVCandle } from '../src/types';
@@ -452,5 +453,80 @@ describe('full detail survives storage', () => {
     assert.equal(cells[cols.indexOf('fear_greed')], '33');
     assert.equal(cells[cols.indexOf('fear_greed_label')], 'Fear');
     assert.equal(cells[cols.indexOf('rsi')], '55.12');
+  });
+});
+
+describe('converting at the rate on the day', () => {
+  /**
+   * The review found the dollar cost of holdings used today's exchange rate,
+   * although every trade records the BTC price in both currencies on its day.
+   */
+  test('a pound buy costs in dollars what it cost on its day, not at today\'s rate', () => {
+    // On the day: BTC was $100,000 and £80,000, so £1 = $1.25. Today £1 = $1.333.
+    const t = trade({ fiat: 800, currency: 'GBP', btc: 0.01, marketPriceUsd: 100000, marketPriceGbp: 80000 });
+    const usd = summariseHoldings([t], 'USD', LIVE);
+    assert.equal(Math.round(usd.costBasis), 1000);
+    assert.equal(usd.atTodaysRate, false);
+    assert.equal(usd.converted, true);
+  });
+
+  test('falls back to today\'s rate when the trade did not record both prices, and says so', () => {
+    const t = trade({ fiat: 600, currency: 'GBP', btc: 0.01, marketPriceUsd: 100000, marketPriceGbp: null });
+    const usd = summariseHoldings([t], 'USD', LIVE);
+    assert.equal(Math.round(usd.costBasis), 800); // 600 x 80000/60000
+    assert.equal(usd.atTodaysRate, true);
+  });
+
+  test('the starting balance is converted at today\'s rate', () => {
+    const opening: OpeningPosition = { time: T0, invested: 600, currency: 'GBP', btc: 0.01, updatedAt: T0 };
+    const usd = summariseHoldings([], 'USD', LIVE, opening);
+    assert.equal(Math.round(usd.costBasis), 800);
+    assert.equal(usd.atTodaysRate, true);
+  });
+
+  test('the same currency is never converted', () => {
+    const t = trade({ fiat: 800, currency: 'GBP', marketPriceUsd: 100000, marketPriceGbp: 80000 });
+    const gbp = summariseHoldings([t], 'GBP', LIVE);
+    assert.equal(gbp.costBasis, 800);
+    assert.equal(gbp.converted, false);
+    assert.equal(gbp.atTodaysRate, false);
+  });
+
+  test('convertAtTrade and the implied rate', () => {
+    const t = { marketPriceUsd: 100000, marketPriceGbp: 80000 };
+    assert.equal(tradeFxGbpPerUsd(t), 0.8);
+    assert.deepEqual(convertAtTrade(100, 'USD', 'GBP', t, LIVE), { value: 80, atToday: false });
+    assert.deepEqual(convertAtTrade(80, 'GBP', 'USD', t, LIVE), { value: 100, atToday: false });
+    assert.equal(tradeFxGbpPerUsd({ marketPriceUsd: null, marketPriceGbp: 80000 }), null);
+  });
+
+  test('price per BTC includes the fee, in either currency', () => {
+    const t = trade({ fiat: 810, fee: 10, currency: 'GBP', btc: 0.01, marketPriceUsd: 100000, marketPriceGbp: 80000 });
+    assert.equal(tradePricePerBtc(t, 'GBP', LIVE), 81000);
+    assert.equal(Math.round(tradePricePerBtc(t, 'USD', LIVE)), 101250);
+  });
+});
+
+describe('tradeDefaults', () => {
+  /** The review found a pound buy defaulted to dollars because the display did. */
+  test('pounds when nothing has been logged', () => {
+    assert.deepEqual(tradeDefaults([], null), { currency: 'GBP', feeRate: null });
+  });
+
+  test('the currency of the most recently logged trade', () => {
+    const a = trade({ id: 'a', currency: 'GBP', createdAt: T0 });
+    const b = trade({ id: 'b', currency: 'USD', createdAt: T0 + DAY, time: T0 - DAY });
+    assert.equal(tradeDefaults([a, b], null).currency, 'USD');
+  });
+
+  test('the starting balance\'s currency when there are no trades', () => {
+    const opening: OpeningPosition = { time: T0, invested: 600, currency: 'USD', btc: 0.01, updatedAt: T0 };
+    assert.equal(tradeDefaults([], opening).currency, 'USD');
+  });
+
+  test('the fee rate of the latest trade that paid one', () => {
+    const a = trade({ id: 'a', fiat: 500, fee: 7.45, createdAt: T0 });
+    const b = trade({ id: 'b', fiat: 200, fee: 0, createdAt: T0 + DAY });
+    assert.equal(tradeDefaults([a, b], null).feeRate, 7.45 / 500);
   });
 });

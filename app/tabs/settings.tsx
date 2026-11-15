@@ -39,10 +39,10 @@ export default function SettingsScreen() {
     : 'Auto-refreshing every 5 min';
 
   const stretchLabel =
-    settings.stretchWeight === 0 ? 'Off — the regime alone decides the allocation'
-    : settings.stretchWeight <= 0.15 ? 'Light — small tilts on stretched prices'
-    : settings.stretchWeight <= 0.3 ? 'Moderate — noticeably more trading'
-    : 'Heavy — frequent trading, and fees start to bite';
+    settings.stretchWeight === 0 ? 'Off: the long-term trend alone decides how much to hold.'
+    : settings.stretchWeight <= 0.15 ? 'Light: small nudges when the price has run far up or down.'
+    : settings.stretchWeight <= 0.3 ? 'Medium: bigger nudges, and noticeably more buying and selling.'
+    : 'Heavy: frequent buying and selling, and fees start to bite.';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -76,9 +76,8 @@ export default function SettingsScreen() {
             style={styles.segmented}
           />
           <Text style={styles.sublabel}>
-            Which candles the regime and allocation are computed on. Longer timeframes trade
-            less and react more slowly. This is what the Dashboard and Signals screens use;
-            the Chart screen can be viewed at any timeframe independently.
+            Which candles the advice is worked out on. Longer ones change their mind less often
+            and react more slowly. Home and Signals use this; the Chart tab can show any of them.
           </Text>
         </GlassCard>
 
@@ -94,24 +93,22 @@ export default function SettingsScreen() {
             value={String(settings.stretchWeight)}
             onValueChange={(v) => settings?.setStretchWeight?.(parseFloat(v))}
             buttons={[
-              { value: '0', label: 'Off', style: styles.segBtn },
-              { value: '0.15', label: 'Light', style: styles.segBtn },
-              { value: '0.3', label: 'Moderate', style: styles.segBtn },
-              { value: '0.5', label: 'Heavy', style: styles.segBtn },
+              { value: '0', label: 'Off', style: styles.segBtn, labelStyle: styles.segLabel },
+              { value: '0.15', label: 'Light', style: styles.segBtn, labelStyle: styles.segLabel },
+              { value: '0.3', label: 'Medium', style: styles.segBtn, labelStyle: styles.segLabel },
+              { value: '0.5', label: 'Heavy', style: styles.segBtn, labelStyle: styles.segLabel },
             ]}
             style={styles.segmented}
           />
           <Text style={styles.sublabel}>{stretchLabel}</Text>
           <Text style={styles.note}>
-            How far an overbought or oversold reading may move the allocation away from what
-            the regime says. It can never flip the call, only temper it. Backtesting on the
-            bundled data favoured "Light": heavier settings traded several times more often
-            and gave most of the gain back in fees. Run `yarn backtest --sweep` on your own
-            data before changing it.
+            It can only soften or strengthen the advice, never turn it round. Tested on past
+            prices, Light did best: the heavier settings bought and sold several times as often
+            and lost most of the gain to fees. If unsure, leave it on Light.
           </Text>
         </GlassCard>
 
-        <Text style={styles.sectionHeader}>Data Refresh</Text>
+        <Text style={styles.sectionHeader}>Data refresh</Text>
         <GlassCard>
           <Text style={styles.label}>Refresh interval</Text>
           <SegmentedButtons
@@ -131,21 +128,22 @@ export default function SettingsScreen() {
         <GlassCard>
           <Text style={styles.label}>Price currency</Text>
           <SegmentedButtons
-            value={settings?.currency ?? 'USD'}
+            value={settings?.currency ?? 'GBP'}
             onValueChange={(v) => settings?.setCurrency?.(v as Currency)}
             buttons={[
-              { value: 'USD', label: 'USD', style: styles.segBtn },
-              { value: 'GBP', label: 'GBP', style: styles.segBtn },
+              { value: 'GBP', label: '£ Pounds', style: styles.segBtn },
+              { value: 'USD', label: '$ Dollars', style: styles.segBtn },
             ]}
             style={styles.segmented}
           />
           <Text style={styles.sublabel}>
-            Affects the headline price only. Charts and indicators stay in USD, which is where
-            the liquidity is.
+            Prices, levels, market size and the Chart tab follow this. The advice itself is always
+            worked out on Bitcoin in dollars, the biggest market, so it is the same either way.
+            Trades keep the currency you paid in, and Portfolio always shows both.
           </Text>
         </GlassCard>
 
-        <Text style={styles.sectionHeader}>RSI Display Bands</Text>
+        <Text style={styles.sectionHeader}>RSI bands</Text>
         <GlassCard>
           <View style={styles.inputRow}>
             <Text style={styles.inputLabel}>Oversold below</Text>
@@ -180,8 +178,8 @@ export default function SettingsScreen() {
             </Text>
           )}
           <Text style={styles.note}>
-            These label the RSI reading on the Signals screen. They do not drive the
-            allocation — that comes from the regime and the mean-reversion strength above.
+            These only label the RSI reading on Signals and the Chart. They do not change the
+            advice, which comes from the long-term trend and the setting above.
           </Text>
         </GlassCard>
 
@@ -203,7 +201,7 @@ export default function SettingsScreen() {
           <Text style={styles.aboutText}>BTC Analyst v2.0.0</Text>
           <Text style={styles.aboutSub}>
             Data sources: Kraken (price &amp; candles) · CoinPaprika (dominance) ·
-            Alternative.me (Fear &amp; Greed) · mempool.space (on-chain, native builds only)
+            Alternative.me (Fear &amp; Greed) · mempool.space (network figures, phone app only)
           </Text>
           <Text style={styles.aboutSub}>
             All indicators are computed on-device from public price data. No accounts, no API
@@ -235,6 +233,8 @@ const styles = StyleSheet.create({
   warning: { ...Typography.caption, color: Colors.bearish, marginTop: Spacing.sm, lineHeight: 17 },
   segmented: { marginTop: 4 },
   segBtn: { borderColor: Colors.cardBorder },
+  // Four buttons share a phone's width; a slightly smaller label keeps "Medium" whole.
+  segLabel: { fontSize: 13, letterSpacing: 0 },
   inputRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   inputLabel: { ...Typography.body, color: Colors.textSecondary },
   input: {

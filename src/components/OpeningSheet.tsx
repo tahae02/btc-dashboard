@@ -3,8 +3,7 @@ import { Modal, View, Text, TextInput, Pressable, ScrollView, StyleSheet, Keyboa
 import { SegmentedButtons } from 'react-native-paper';
 import { useData } from '../context/DataContext';
 import { useJournal } from '../context/JournalContext';
-import { useSettings } from '../context/SettingsContext';
-import { parseOpeningForm, convert } from '../services/journal';
+import { parseOpeningForm, convert, tradeDefaults } from '../services/journal';
 import { formatMoney, formatBtc, formatDateTime, currencySymbol } from '../services/format';
 import { Colors, Typography, Spacing, BorderRadius } from '../constants/theme';
 import type { Currency } from '../types';
@@ -21,22 +20,24 @@ interface Props {
  */
 export const OpeningSheet = ({ visible, onClose }: Props) => {
   const data = useData();
-  const settings = useSettings();
   const journal = useJournal();
   const existing = journal.opening;
 
   const [invested, setInvested] = useState('');
   const [btc, setBtc] = useState('');
-  const [currency, setCurrency] = useState<Currency>(settings.currency);
+  const defaultCurrency = tradeDefaults(journal.trades, null).currency;
+  const [currency, setCurrency] = useState<Currency>(existing?.currency ?? defaultCurrency);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     setInvested(existing ? String(existing.invested) : '');
     setBtc(existing ? String(existing.btc) : '');
-    setCurrency(existing?.currency ?? settings.currency);
+    setCurrency(existing?.currency ?? defaultCurrency);
     setError(null);
-  }, [visible, existing, settings.currency]);
+    // Only when the sheet opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, existing]);
 
   const live = { usd: data.price?.price ?? 0, gbp: data.price?.price_gbp ?? 0 };
   // Editing keeps the original date, so trades logged since stay counted.

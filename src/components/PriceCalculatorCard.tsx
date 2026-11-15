@@ -12,7 +12,7 @@ import {
 } from '../services/calculator';
 import { parseAmount, type LivePrices } from '../services/journal';
 import { formatMoney, formatBtc, formatPct, isFlat } from '../services/format';
-import { Colors, Typography, Spacing, BorderRadius, Fonts } from '../constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, Fonts, Numbers } from '../constants/theme';
 
 const gainColour = (n: number | null) => (n == null || isFlat(n) ? Colors.textSecondary : n > 0 ? Colors.bullish : Colors.bearish);
 /** The number without its currency symbol, for the editable price. */
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.elevated, borderWidth: 1, borderColor: Colors.cardBorder,
   },
   chipOn: { backgroundColor: Colors.accent + '26', borderColor: Colors.accent },
-  chipText: { ...Typography.caption, fontFamily: Fonts.mono, color: Colors.textSecondary },
+  chipText: { ...Typography.caption, ...Numbers, color: Colors.textSecondary },
   chipTextOn: { color: Colors.accent, fontWeight: '700' },
   divider: { height: 1, backgroundColor: Colors.cardBorder, marginVertical: Spacing.lg },
   basisText: { ...Typography.body, fontSize: 15, color: Colors.textSecondary },

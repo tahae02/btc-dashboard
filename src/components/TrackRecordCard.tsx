@@ -4,11 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { GlassCard } from './GlassCard';
 import { InfoButton } from './InfoButton';
 import { useJournal } from '../context/JournalContext';
-import { useTrackRecord } from '../hooks/useTrackRecord';
+import type { TrackRecordState } from '../hooks/useTrackRecord';
 import { ACTION_LABEL } from '../services/signalEngine';
 import { SCORE_HORIZONS, type TrackRecord, type HorizonStats } from '../services/trackRecord';
 import { formatPct, formatMoney, formatDate, isFlat } from '../services/format';
-import { Colors, Typography, Spacing, BorderRadius, getSignalColor, Fonts } from '../constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, Fonts, Numbers } from '../constants/theme';
 
 /** Below this many non-overlapping 30-day periods a tier's numbers are noise. */
 const MIN_PERIODS = 3;
@@ -67,10 +67,18 @@ const headline = (r: TrackRecord): string => {
 const rangeLine = (label: string, rate: number | null) =>
   rate == null ? null : `${label}: price finished inside it on ${Math.round(rate * 100)}% of days (it says about two thirds).`;
 
-export const TrackRecordCard = () => {
+/**
+ * The replay runs once, on the Signals screen, and is passed in here and to
+ * the advice history strip, so two copies never replay the same days.
+ */
+export const TrackRecordCard = ({ state }: { state: TrackRecordState }) => {
   const journal = useJournal();
-  const { replay, live, progress } = useTrackRecord(journal.closedDaily, journal.config, journal.signalLog);
+  const { live, progress } = state;
   const [whyOpen, setWhyOpen] = useState(false);
+  // All replayed days, or only the last 12 months, which shows how the
+  // current market has treated the advice rather than the whole history.
+  const [period, setPeriod] = useState<'year' | 'all'>('all');
+  const replay = period === 'year' ? state.replayYear : state.replay;
 
   const enoughHistory = journal.closedDaily.length > 250;
 
@@ -92,6 +100,19 @@ export const TrackRecordCard = () => {
         </View>
       ) : (
         <>
+          <View style={styles.switchRow} accessibilityRole="tablist">
+            {([['year', 'Last 12 months'], ['all', 'All replayed days']] as const).map(([k, label]) => (
+              <Pressable
+                key={k}
+                onPress={() => setPeriod(k)}
+                style={[styles.switchBtn, period === k && styles.switchOn]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: period === k }}
+              >
+                <Text style={[styles.switchText, period === k && { color: Colors.accent }]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
           <Text style={styles.body}>
             The engine replayed on each day from {replay.from ? formatDate(replay.from) : '--'} to{' '}
             {replay.to ? formatDate(replay.to) : '--'}, seeing only prices up to that day, and what BTC did next.
@@ -138,7 +159,7 @@ export const TrackRecordCard = () => {
       )}
 
       <Text style={styles.caveat}>
-        Dimmed rows cover fewer than {MIN_PERIODS} separate 30-day periods, which is too few to judge. Consecutive days
+        Faded rows cover fewer than {MIN_PERIODS} separate 30-day periods, which is too few to judge. Consecutive days
         overlap, so {replay ? Math.floor(replay.days / 30) : 'N'} independent months is the real sample, not the day count.
         Replayed days leave out Fear &amp; Greed, which has no history here.
       </Text>
@@ -165,21 +186,25 @@ const styles = StyleSheet.create({
   title: { ...Typography.subheading, marginBottom: Spacing.sm },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm },
   subtitle: { ...Typography.body, fontWeight: '600', marginBottom: Spacing.sm },
-  body: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, marginBottom: Spacing.sm },
-  reading: { ...Typography.caption, color: Colors.textPrimary, lineHeight: 18, marginTop: Spacing.sm },
-  caveat: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: Spacing.md },
+  body: { ...Typography.caption, fontSize: 14, color: Colors.textSecondary, lineHeight: 20, marginBottom: Spacing.sm },
+  reading: { ...Typography.body, fontSize: 15, color: Colors.textPrimary, lineHeight: 21, marginTop: Spacing.sm },
+  caveat: { ...Typography.caption, fontSize: 13, color: Colors.textSecondary, lineHeight: 19, marginTop: Spacing.md },
+  switchRow: { flexDirection: 'row', gap: 6, marginBottom: Spacing.sm },
+  switchBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill, borderWidth: 1, borderColor: Colors.cardBorder },
+  switchOn: { backgroundColor: Colors.accent + '22', borderColor: Colors.accent },
+  switchText: { ...Typography.caption, fontWeight: '600', color: Colors.textSecondary },
   bar: { height: 6, backgroundColor: Colors.elevated, borderRadius: 3, overflow: 'hidden', marginTop: Spacing.xs },
   barFill: { height: '100%', backgroundColor: Colors.accent },
   divider: { height: 1, backgroundColor: Colors.cardBorder, marginVertical: Spacing.lg },
   tableHead: { flexDirection: 'row', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder },
   tr: { flexDirection: 'row', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder },
-  thin: { opacity: 0.45 },
+  thin: { opacity: 0.6 },
   baseRow: { borderBottomWidth: 0 },
-  th: { ...Typography.caption, color: Colors.textTertiary, fontSize: 10 },
-  td: { ...Typography.caption, color: Colors.textPrimary, fontFamily: Fonts.mono, fontSize: 11 },
+  th: { ...Typography.caption, color: Colors.textSecondary, fontSize: 12 },
+  td: { ...Typography.caption, color: Colors.textPrimary, ...Numbers, fontSize: 13 },
   colSignal: { flex: 1.7 },
   colDays: { flex: 0.6, textAlign: 'right' },
   colNum: { flex: 1, textAlign: 'right' },
   whyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.md, paddingVertical: 4 },
-  whyTitle: { ...Typography.caption, color: Colors.accent, fontWeight: '600', flex: 1 },
+  whyTitle: { ...Typography.caption, fontSize: 14, color: Colors.accent, fontWeight: '600', flex: 1 },
 });

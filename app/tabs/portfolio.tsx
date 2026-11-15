@@ -12,17 +12,21 @@ import { TradeDetailSheet } from '../../src/components/TradeDetailSheet';
 import { PriceCalculatorCard } from '../../src/components/PriceCalculatorCard';
 import { TradeCard } from '../../src/components/TradeCard';
 import { PaperPortfolio } from '../../src/components/PaperPortfolio';
+import { PortfolioGrowthCard } from '../../src/components/PortfolioGrowthCard';
+import { TaxSummaryCard } from '../../src/components/TaxSummaryCard';
+import { CoinbaseImportSheet } from '../../src/components/CoinbaseImportSheet';
 import { InfoButton } from '../../src/components/InfoButton';
 import { useExplain } from '../../src/context/ExplainContext';
 import { PORTFOLIO_VIEW_KEY } from '../../src/services/paper';
 import {
   summariseHoldings, groupBuysBySignal, serialiseBackup, tradesToCsv, isCoveredByOpening,
+  filterTrades, tradeFilterOptions, ALL_TRADES, type TradeFilter,
   type Trade, type TradeSide, type PriceSeries,
 } from '../../src/services/journal';
 import { ACTION_LABEL } from '../../src/services/signalEngine';
 import { TIMEFRAME_MS } from '../../src/services/candles';
 import { formatMoney, formatBtc, formatPct, formatDateTime, isFlat } from '../../src/services/format';
-import { Colors, Typography, Spacing, BorderRadius, getSignalColor, Fonts } from '../../src/constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, Fonts, Numbers } from '../../src/constants/theme';
 
 const pnlColour = (n: number | null | undefined) => (n == null || n === 0 ? Colors.textSecondary : n > 0 ? Colors.bullish : Colors.bearish);
 /** Colour for a fractional move: neutral when it rounds to 0.0%. */
@@ -39,6 +43,7 @@ export default function PortfolioScreen() {
   const [openingOpen, setOpeningOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [restoreText, setRestoreText] = useState('');
   // Off while a finger is on the calculator's slider, so dragging it does not scroll the page.
   const [scrollable, setScrollable] = useState(true);
@@ -84,7 +89,10 @@ export default function PortfolioScreen() {
   // figures are converted at today's rate.
   const used = new Set([...journal.trades.map((t) => t.currency), ...(journal.opening ? [journal.opening.currency] : [])]);
   const groups = useMemo(() => groupBuysBySignal(journal.trades, series), [journal.trades, series]);
-  const newestFirst = useMemo(() => [...journal.trades].reverse(), [journal.trades]);
+  const [filter, setFilter] = useState<TradeFilter>(ALL_TRADES);
+  const filterOptions = useMemo(() => tradeFilterOptions(journal.trades), [journal.trades]);
+  const newestFirst = useMemo(() => filterTrades([...journal.trades].reverse(), filter), [journal.trades, filter]);
+  const filtering = filter.side !== 'all' || filter.action !== 'all' || filter.year !== 'all';
 
   const detailTrade = detailId ? journal.trades.find((t) => t.id === detailId) ?? null : null;
 
@@ -235,10 +243,15 @@ export default function PortfolioScreen() {
             {used.size > 0 && (
               <Text style={styles.note}>
                 {used.size > 1
-                  ? 'You have bought in both pounds and dollars; amounts are converted between them at today\'s exchange rate, so the totals are approximate.'
+                  ? 'You have bought in both pounds and dollars. Each trade is converted at the exchange rate on its own day.'
                   : used.has('GBP')
-                  ? 'You bought in pounds. The dollar costs convert what you paid at today\'s exchange rate, not the rate on the day.'
-                  : 'You bought in dollars. The pound costs convert what you paid at today\'s exchange rate, not the rate on the day.'}
+                  ? 'You bought in pounds. The dollar figures convert each trade at the exchange rate on its day.'
+                  : 'You bought in dollars. The pound figures convert each trade at the exchange rate on its day.'}
+                {(gbp.atTodaysRate || usd.atTodaysRate)
+                  ? journal.opening
+                    ? ' Your starting balance has no single day, so it uses today\'s rate.'
+                    : ' Trades without both prices recorded use today\'s rate.'
+                  : ''}
               </Text>
             )}
             {summary.oversold && (
@@ -247,6 +260,10 @@ export default function PortfolioScreen() {
               </Text>
             )}
           </GlassCard>
+        )}
+
+        {hasAnything && (
+          <PortfolioGrowthCard trades={journal.trades} opening={journal.opening} live={{ usd: liveUsd, gbp: liveGbp }} />
         )}
 
         <View style={styles.actions}>
@@ -297,6 +314,36 @@ export default function PortfolioScreen() {
           </GlassCard>
         )}
 
+        <TaxSummaryCard trades={journal.trades} opening={journal.opening} live={{ usd: liveUsd, gbp: liveGbp }} />
+
+        {journal.trades.length > 3 && (
+          <View style={styles.filters}>
+            <Text style={styles.filterTitle}>Your trades{filtering ? ` (${newestFirst.length} of ${journal.trades.length})` : ''}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+              {([['all', 'All'], ['buy', 'Buys'], ['sell', 'Sells']] as const).map(([v, label]) => (
+                <Chip key={v} label={label} on={filter.side === v} onPress={() => setFilter((f) => ({ ...f, side: v }))} />
+              ))}
+              <View style={styles.chipGap} />
+              {filterOptions.years.length > 1 &&
+                (['all', ...filterOptions.years] as const).map((y) => (
+                  <Chip key={String(y)} label={y === 'all' ? 'Any year' : String(y)} on={filter.year === y} onPress={() => setFilter((f) => ({ ...f, year: y }))} />
+                ))}
+            </ScrollView>
+            {filterOptions.actions.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                <Chip label="Any advice" on={filter.action === 'all'} onPress={() => setFilter((f) => ({ ...f, action: 'all' }))} />
+                {filterOptions.actions.map((a) => (
+                  <Chip key={a} label={ACTION_LABEL[a]} colour={getSignalColor(a)} on={filter.action === a} onPress={() => setFilter((f) => ({ ...f, action: a }))} />
+                ))}
+                {filterOptions.unstamped && (
+                  <Chip label="No advice saved" on={filter.action === 'none'} onPress={() => setFilter((f) => ({ ...f, action: 'none' }))} />
+                )}
+              </ScrollView>
+            )}
+            {filtering && newestFirst.length === 0 && <Text style={styles.note}>No trades match these filters.</Text>}
+          </View>
+        )}
+
         {newestFirst.map((t) => (
           <TradeCard
             key={t.id}
@@ -317,7 +364,7 @@ export default function PortfolioScreen() {
         )}
 
         <GlassCard>
-          <Text style={styles.sectionTitle}>Backup</Text>
+          <Text style={styles.sectionTitle}>Backup and import</Text>
           <Text style={styles.body}>
             Trades live only on this phone and are lost if the app is uninstalled. Updating the app keeps them.
           </Text>
@@ -331,7 +378,13 @@ export default function PortfolioScreen() {
             <Pressable style={styles.linkBtn} onPress={() => setRestoreOpen((o) => !o)}>
               <Text style={styles.link}>Restore</Text>
             </Pressable>
+            <Pressable style={styles.linkBtn} onPress={() => setImportOpen(true)} accessibilityRole="button">
+              <Text style={styles.link}>Import from Coinbase</Text>
+            </Pressable>
           </View>
+          {!hasAnything && (
+            <Text style={styles.note}>Export becomes available once you have logged a trade or a starting balance.</Text>
+          )}
           {restoreOpen && (
             <View style={{ marginTop: Spacing.md }}>
               <TextInput
@@ -355,6 +408,7 @@ export default function PortfolioScreen() {
 
       <AddTradeSheet visible={sheet != null} initialSide={sheet ?? 'buy'} onClose={() => setSheet(null)} />
       <OpeningSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} />
+      <CoinbaseImportSheet visible={importOpen} onClose={() => setImportOpen(false)} />
       {detailTrade && (
         <TradeDetailSheet
           trade={detailTrade}
@@ -368,8 +422,25 @@ export default function PortfolioScreen() {
   );
 }
 
+const Chip = ({ label, on, onPress, colour = Colors.accent }: { label: string; on: boolean; onPress: () => void; colour?: string }) => (
+  <Pressable
+    onPress={onPress}
+    style={[styles.chip, on && { backgroundColor: colour + '26', borderColor: colour }]}
+    accessibilityRole="button"
+    accessibilityState={{ selected: on }}
+  >
+    <Text style={[styles.chipText, on && { color: colour }]}>{label}</Text>
+  </Pressable>
+);
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+  filters: { gap: Spacing.sm, marginTop: Spacing.sm },
+  filterTitle: { ...Typography.subheading },
+  chipRow: { gap: 6, paddingRight: Spacing.lg },
+  chipGap: { width: 8 },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill, borderWidth: 1, borderColor: Colors.cardBorder, backgroundColor: Colors.card },
+  chipText: { ...Typography.caption, fontWeight: '600', color: Colors.textSecondary },
   header: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
   switch: { flexDirection: 'row', gap: 6 },
   switchBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill, borderWidth: 1, borderColor: Colors.cardBorder },
@@ -407,7 +478,7 @@ const styles = StyleSheet.create({
   tableHead: { flexDirection: 'row', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder },
   tr: { flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder },
   th: { ...Typography.caption, color: Colors.textTertiary, fontSize: 11 },
-  td: { ...Typography.caption, color: Colors.textPrimary, fontFamily: Fonts.mono },
+  td: { ...Typography.caption, color: Colors.textPrimary, ...Numbers },
   colSignal: { flex: 1.6 },
   colNum: { flex: 1, textAlign: 'right' },
   footnote: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, paddingHorizontal: Spacing.xs },

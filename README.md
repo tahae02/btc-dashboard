@@ -53,9 +53,17 @@ Volatility (ATR) and support/resistance are shown as **context** and explicitly 
 
 ## Portfolio and track record
 
-**Portfolio tab.** Already own Bitcoin? Add a *starting balance*: the total you have put in and the BTC you hold now. Your average cost is worked out in pounds and, at today's rate, dollars. Trades dated before the starting balance are treated as already inside it, so back-logging an old order never counts it twice.
+**Portfolio tab.** Already own Bitcoin? Add a *starting balance*: the total you have put in and the BTC you hold now. Your average cost is worked out in pounds and dollars. Trades dated before the starting balance are treated as already inside it, so back-logging an old order never counts it twice.
 
-Holdings are always shown in both pounds and dollars, whatever the currency setting: value and profit side by side, with cost of holdings and average cost in pounds and dollars underneath. The currency you did not buy in is converted at today's exchange rate, and the screen says so.
+Holdings are always shown in both pounds and dollars, whatever the currency setting: value and profit side by side, with cost of holdings and average cost in pounds and dollars underneath. Each trade is converted into the other currency at the exchange rate on its own day, implied by the BTC price it recorded in pounds and dollars. Only the starting balance (which has no single day) and any trade missing one of those prices use today's rate, and the screen says when that happens.
+
+Also on the Portfolio tab:
+
+- **Worth against what you paid:** a daily chart, in pounds, of what your Bitcoin was worth against what it cost you, from your starting balance or first trade.
+- **Gains for your tax return:** gains and losses by UK tax year (6 April to 5 April), matched the HMRC way: same day, then the next 30 days, then the average-cost pool. Buy fees count as costs and sale amounts are after fees. An estimate from the trades logged here, with a Share button. Logic in `src/services/ukTax.ts`.
+- **Filters** for the trade list: buys or sells, the advice at the time, and the year.
+- **Import from Coinbase:** paste the text of a Coinbase transaction history (CSV). Bitcoin buys and sells in pounds or dollars are logged like back-dated trades, with the market price and the replayed advice from their day. Trades already logged are left out, and importing the same file twice adds nothing. Logic in `src/services/coinbaseImport.ts`.
+- New buys and sells open on the currency you last used (pounds if none), never the display setting, and offer one tap to fill the fee at your last trade's rate.
 
 Tap any trade for everything recorded at that moment: the order (total, fee, BTC, exchange price, price including fee), the market (BTC in pounds and dollars, Fear & Greed with its label, RSI, volatility, the 200-day average and how far the price was from it), what the app said (advice, regime, conviction, target allocation, DCA multiplier, stretch, momentum, and whether it was recorded live or replayed), and what the price did 1, 7, 30 and 90 days later. The CSV export carries all of it.
 
@@ -71,7 +79,8 @@ Then log each buy or sell with the figures from your exchange's order details: t
 - Limit orders fill from hourly prices in the order's currency, whether or not the app is open. Only whole hours after placing count, so a dip in the first or last few minutes can be missed, but a fill is never invented. While the app is open the live price is checked too.
 - The price 24 hours, 48 hours, 7, 30 and 90 days after every decision is recorded once known and kept, so results stay accurate to the hour long after the app's hourly history has moved on.
 - **How the advice has done** scores the record: your paper buys against the same money spread evenly over the same days (the clearest test of whether varying the amount pays), results grouped by whose call, why, the signal tier and how the amount compared with the app's, how good Claude's chances were (a Brier score against 0.250 for always saying 50%), limit order fill rates and savings, and what your real buys paid per BTC against your paper ones. Every figure shows its sample size and says when it is too few to judge.
-- **How to paper trade** on the same screen covers when and how often: every regular buy day without fail, extras when something happens (at most one a day), and whenever you are tempted to trade for real.
+- **Average price paid: real against paper** draws both running averages since paper trading began, as two lines.
+- **How to paper trade** (three picture cards, the full text one tap away) covers when and how often: every regular buy day without fail, extras when something happens (at most one a day), and whenever you are tempted to trade for real.
 - Export a paper backup or CSV from the bottom of the screen. `yarn paper-review path/to/paper-backup.json` prints the same scorecard from a backup, and the `/paper-review` Claude command uses it (or the CSV) for a deeper review. Logic is in `src/services/paper.ts` and `src/services/paperReview.ts`.
 
 **Track record (Signals tab).** Two records, scored the same way:
@@ -79,7 +88,13 @@ Then log each buy or sell with the figures from your exchange's order details: t
 - *Replay.* The engine re-run on each of the ~500 scorable days in the ~720 days of history the app downloads, seeing only prices up to that day. For each tier: the average BTC move 7, 30 and 90 days later, against an average day. It also checks whether scaling weekly buys by the DCA multiplier bought more cheaply than a flat amount, and how often price actually landed inside the 24h and 7d ranges, which claim about two thirds.
 - *Recorded on this phone.* The signal the app actually showed you, saved once a day as you use it. This is the honest out-of-sample record, and it fills slowly.
 
+The replay can be limited to the last 12 months with a switch. Above it, *The advice over the last year* draws the same replay as colour bands (accumulate, hold, reduce) under the price line.
+
 The engine does **not** retune itself from either record. Two years of daily data holds fewer than two dozen independent months, and a month's BTC move is routinely ±20%, so a self-tuning engine would fit the noise and look like it was improving while getting worse. Use the record to spot a tier that consistently underperforms, then test a change with `yarn backtest --split` on a decade of real data before keeping it.
+
+**Chart tab.** Candles drawn by the app itself (green when a candle closed higher than it opened, red when lower), with dates along the bottom and round price labels. Drag sideways to go back through history; tap a candle for its prices. The 200 average is drawn by default, Bollinger Bands as a pair, and your own buys and sells as dots with a line at your average cost. Prices follow the currency setting (Kraken's own BTC/GBP market in pounds); RSI and MACD always come from BTC/USD so they match Signals.
+
+**Home** shows the advice headline (full breakdown on Signals), Fear & Greed as a chip (the dial and its 30 days are on the Market tab), and a *Worth a look today* card when the advice changes, Bitcoin moves 5% in a day or 10% in a week, or Fear & Greed is 20 or below or 80 or above. Prices default to pounds.
 
 **Plain English.** Every indicator, number and label has an (i) next to it that explains what it is and what it tends to mean, for someone who has never traded. The Home tab has an *In plain English* summary of the current market and the advice, built only from numbers the engine produced. Each reading on the Signals tab leads with a plain-English line, with the technical detail one tap away. The book icon on Home (or Settings, *Jargon explained*) opens every term in one place.
 
@@ -211,9 +226,9 @@ You shouldn't need to, since the workflow does it on every push. But if you want
   `android/` and `ios/` are gitignored, so `prebuild` regenerates them. Don't hand-edit anything inside them.
 - **With Expo's build service (EAS)**, which needs a free Expo account: `npx eas-cli build --profile preview --platform android`. The `preview` profile in `eas.json` produces an installable `.apk`; `production` produces an `.aab`, which is for Play Store upload only.
 
-### Note on the On-Chain screen
+### Note on the Market screen
 
-mempool.space doesn't send browser CORS headers, so on-chain metrics are skipped on web and work only in native builds (Expo Go included). The screen explains this when you're on web.
+The Market tab (called On-Chain before) holds the mood (Fear & Greed), market size and the network's health. mempool.space doesn't send browser CORS headers, so the network figures are skipped on web and work only in native builds (Expo Go included). The screen explains this when you're on web.
 
 ---
 

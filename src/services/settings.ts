@@ -14,12 +14,24 @@ import type { Settings, RefreshInterval, Currency, Timeframe } from '../types';
 
 export const DEFAULT_SETTINGS: Settings = {
   refreshInterval: '5min',
-  currency: 'USD',
+  // Pounds: the app is for someone who buys in pounds. It used to be USD.
+  currency: 'GBP',
   signalTimeframe: '1D',
   rsiOverbought: 70,
   rsiOversold: 30,
   stretchWeight: 0.15,
 };
+
+/** Set once the one-off move to pounds below has been applied on this phone. */
+export const GBP_DEFAULT_KEY = 'btc_dashboard_gbp_default_v1';
+
+/**
+ * Settings saved before pounds became the default carry the old default, USD,
+ * whether or not anyone chose it (they are saved whole whenever any setting
+ * changes). Move them to pounds once. After that, choosing USD sticks.
+ */
+export const applyPoundDefault = (stored: Settings, alreadyApplied: boolean): Settings =>
+  alreadyApplied || stored.currency !== 'USD' ? stored : { ...stored, currency: 'GBP' };
 
 /** Minimum gap between the RSI bands for them to mean anything. */
 export const MIN_RSI_GAP = 5;

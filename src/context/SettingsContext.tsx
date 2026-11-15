@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Settings, RefreshInterval, Currency, Timeframe } from '../types';
-import { sanitiseSettings, DEFAULT_SETTINGS as defaultSettings } from '../services/settings';
+import { sanitiseSettings, applyPoundDefault, GBP_DEFAULT_KEY, DEFAULT_SETTINGS as defaultSettings } from '../services/settings';
 
 // Bumped from the v1 key: the settings shape changed (volumeSpikeMultiplier
 // went away, signalTimeframe and stretchWeight arrived), and sanitiseSettings
@@ -40,10 +40,19 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        const [stored, poundsApplied] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY),
+          AsyncStorage.getItem(GBP_DEFAULT_KEY),
+        ]);
         // Stored values are sanitised too: an old or hand-edited payload must
         // not be able to put the app into an invalid state.
-        if (stored) setSettings(sanitiseSettings(JSON.parse(stored) ?? {}));
+        if (stored) {
+          const loaded = sanitiseSettings(JSON.parse(stored) ?? {});
+          const next = applyPoundDefault(loaded, poundsApplied != null);
+          setSettings(next);
+          if (next !== loaded) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+        }
+        if (poundsApplied == null) AsyncStorage.setItem(GBP_DEFAULT_KEY, '1').catch(() => {});
       } catch { /* fall back to defaults */ }
       setIsLoaded(true);
     })();

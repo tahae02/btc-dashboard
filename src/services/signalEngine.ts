@@ -59,6 +59,7 @@ import type {
   SignalConfig,
   PriceProjections,
 } from '../types';
+import { levelDistance, usd0 } from './levels';
 
 export const DEFAULT_CONFIG: SignalConfig = {
   // Regime thresholds
@@ -470,12 +471,12 @@ const buildReadings = (
     readings.push({
       name: 'Volatility (ATR)',
       family: 'CONTEXT',
-      value: `$${ind.atr.toFixed(0)} (${ind.atrPct.toFixed(1)}%)`,
+      value: `${usd0(ind.atr)} (${ind.atrPct.toFixed(1)}%)`,
       signal: 'NEUTRAL',
       weight: 'Context only',
       term: 'atr',
       plain:
-        `A typical period moves about ${ind.atrPct.toFixed(1)}% (about $${ind.atr.toFixed(0)}) from high to low. ` +
+        `A typical period moves about ${ind.atrPct.toFixed(1)}% (about ${usd0(ind.atr)}) from high to low. ` +
         (ind.atrPct > 4
           ? 'That is choppier than usual, so expect bigger swings both ways.'
           : ind.atrPct < 1.5
@@ -500,18 +501,18 @@ const buildReadings = (
     readings.push({
       name: 'Nearest levels',
       family: 'CONTEXT',
-      value: `S: ${s ? '$' + s.toFixed(0) : 'n/a'}  R: ${r ? '$' + r.toFixed(0) : 'n/a'}`,
+      value: `S: ${s ? usd0(s) : 'n/a'}  R: ${r ? usd0(r) : 'n/a'}`,
       signal: 'NEUTRAL',
       weight: 'Context only',
       term: 'supportResistance',
       plain:
-        (s ? `Recently the price stopped falling and bounced around $${s.toFixed(0)} (support)` : 'No recent low to lean on') +
-        (r ? ` and stalled on the way up around $${r.toFixed(0)} (resistance). ` : '. ') +
+        (s ? `Recently the price stopped falling and bounced around ${usd0(s)} (support)` : 'No recent low to lean on') +
+        (r ? ` and stalled on the way up around ${usd0(r)} (resistance). ` : '. ') +
         'Prices often pause near levels like these, but they break regularly.',
       explanation:
         'Recent swing pivots where price actually turned, ordered nearest first. ' +
-        (s && price > 0 ? `Nearest support is ${(((price - s) / price) * 100).toFixed(1)}% below. ` : '') +
-        (r && price > 0 ? `Nearest resistance is ${(((r - price) / price) * 100).toFixed(1)}% above. ` : '') +
+        (s && price > 0 ? `Nearest support is ${levelDistance(price, s, 'support')!.text}. ` : '') +
+        (r && price > 0 ? `Nearest resistance is ${levelDistance(price, r, 'resistance')!.text}. ` : '') +
         'Useful for placing orders, but not used to generate the allocation.',
     });
   }

@@ -40,18 +40,39 @@ const SECTIONS: { title: string; points: string[] }[] = [
   },
 ];
 
+/** The guide in three pictures; the full text above is one tap away. */
+const STEPS: { icon: keyof typeof Ionicons.glyphMap; title: string; text: string }[] = [
+  { icon: 'calendar-outline', title: 'When', text: 'Every regular buy day, without fail. Extras when something big happens.' },
+  { icon: 'checkmark-done-outline', title: 'How', text: "Follow the advice. The app's amount is filled in: leave it." },
+  { icon: 'hourglass-outline', title: 'How long', text: 'A month for first results. 6 to 12 months to judge.' },
+];
+
 export const PaperGuideCard = ({ initiallyOpen }: { initiallyOpen: boolean }) => {
-  const [open, setOpen] = useState(initiallyOpen);
+  const [open, setOpen] = useState(false);
   return (
     <GlassCard>
-      <Pressable onPress={() => setOpen((o) => !o)} style={styles.head} accessibilityRole="button" accessibilityState={{ expanded: open }}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>How to paper trade</Text>
-          <InfoButton term="paperTrading" />
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>How to paper trade</Text>
+        <InfoButton term="paperTrading" />
+      </View>
+      {(initiallyOpen || open) && (
+        <View style={styles.steps}>
+          {STEPS.map((step, i) => (
+            <View key={step.title} style={styles.step}>
+              <View style={styles.stepIcon}>
+                <Ionicons name={step.icon} size={22} color={Colors.paper} />
+                <Text style={styles.stepNum}>{i + 1}</Text>
+              </View>
+              <Text style={styles.stepTitle}>{step.title}</Text>
+              <Text style={styles.stepText}>{step.text}</Text>
+            </View>
+          ))}
         </View>
+      )}
+      <Pressable onPress={() => setOpen((o) => !o)} style={styles.head} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+        <Text style={styles.more}>{open ? 'Hide the full guide' : initiallyOpen ? 'Read the full guide' : 'When, how, and how long: show the guide'}</Text>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.paper} />
       </Pressable>
-      {!open && <Text style={styles.closed}>When, how often, and how long before the record means anything.</Text>}
       {open &&
         SECTIONS.map((s) => (
           <View key={s.title} style={styles.section}>
@@ -69,10 +90,16 @@ export const PaperGuideCard = ({ initiallyOpen }: { initiallyOpen: boolean }) =>
 };
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.sm, paddingVertical: 4 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { ...Typography.subheading },
-  closed: { ...Typography.caption, color: Colors.textTertiary, marginTop: Spacing.xs },
+  more: { ...Typography.caption, fontSize: 14, color: Colors.paper, fontWeight: '600', flex: 1 },
+  steps: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
+  step: { flex: 1, backgroundColor: Colors.paper + '14', borderRadius: 12, padding: Spacing.sm, gap: 4 },
+  stepIcon: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepNum: { ...Typography.caption, color: Colors.paper, fontWeight: '700' },
+  stepTitle: { ...Typography.body, fontSize: 15, fontWeight: '700' },
+  stepText: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 17 },
   section: { marginTop: Spacing.md },
   subtitle: { ...Typography.body, fontWeight: '600', color: Colors.paper, marginBottom: Spacing.xs },
   point: { flexDirection: 'row', gap: 8, marginTop: 6 },

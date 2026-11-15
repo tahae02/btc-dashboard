@@ -11,7 +11,7 @@ import {
 import { ACTION_LABEL } from '../services/signalEngine';
 import { ACTION_PLAIN } from '../services/plainEnglish';
 import { formatMoney, formatBtc, formatPct, formatDateTime, isFlat } from '../services/format';
-import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts, Numbers } from '../constants/theme';
 
 interface Props {
   trade: Trade | null;
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder },
   rowLabel: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
   label: { ...Typography.caption, color: Colors.textSecondary, fontSize: 13 },
-  value: { ...Typography.monoData, fontSize: 13, textAlign: 'right', flexShrink: 1, fontFamily: Fonts.mono },
+  value: { ...Typography.monoData, fontSize: 13, textAlign: 'right', flexShrink: 1, ...Numbers },
   plain: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 17, paddingVertical: 6 },
   source: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, marginTop: Spacing.sm },
   delete: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: Spacing.md },

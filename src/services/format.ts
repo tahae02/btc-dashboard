@@ -20,6 +20,18 @@ export const formatMoney = (n: number, c: Currency, signed = false): string => {
   return `${sign}${currencySymbol(c)}${body}`;
 };
 
+/** Big amounts, short: "$1.6T", "£24.3B", "$950M"; smaller ones as formatMoney. */
+export const formatCompactMoney = (n: number, c: Currency): string => {
+  if (!Number.isFinite(n)) return '--';
+  const abs = Math.abs(n);
+  const sym = currencySymbol(c);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1e12) return `${sign}${sym}${(abs / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${sign}${sym}${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${sign}${sym}${(abs / 1e6).toFixed(1)}M`;
+  return formatMoney(n, c);
+};
+
 /** Up to 8 decimals, trailing zeros trimmed: 0.00591700 -> "0.005917". */
 export const formatBtc = (n: number): string => {
   const s = n.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');

@@ -21,6 +21,10 @@ const keyFor = (daily: OHLCVCandle[], config: SignalConfig): string =>
 export interface TrackRecordState {
   /** Replay of the engine over past daily bars. Null while computing. */
   replay: TrackRecord | null;
+  /** The same replay, counting only calls from the last 12 months. */
+  replayYear: TrackRecord | null;
+  /** Every replayed day's call, oldest first. Null while computing. */
+  calls: DayCall[] | null;
   /** The calls this phone actually showed. */
   live: TrackRecord | null;
   /** 0..1 while replaying. */
@@ -77,7 +81,12 @@ export const useTrackRecord = (
   }, [key]);
 
   const replay = useMemo(() => (calls ? scoreCalls(calls, closedDaily) : null), [calls, closedDaily]);
+  const replayYear = useMemo(() => {
+    if (!calls?.length) return null;
+    const since = calls[calls.length - 1]!.day - 365 * 86400000;
+    return scoreCalls(calls.filter((c) => c.day > since), closedDaily);
+  }, [calls, closedDaily]);
   const live = useMemo(() => (signalLog.length ? scoreCalls(signalLog, closedDaily) : null), [signalLog, closedDaily]);
 
-  return { replay, live, progress };
+  return { replay, replayYear, calls, live, progress };
 };

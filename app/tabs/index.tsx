@@ -9,22 +9,16 @@ import { useIndicators } from '../../src/hooks/useIndicators';
 import { useSignalEngine } from '../../src/hooks/useSignalEngine';
 import { GlassCard } from '../../src/components/GlassCard';
 import { SignalBadge } from '../../src/components/SignalBadge';
-import { FearGreedGauge } from '../../src/components/FearGreedGauge';
 import { SkeletonLoader } from '../../src/components/SkeletonLoader';
 import { ErrorRetry } from '../../src/components/ErrorRetry';
 import { InfoButton } from '../../src/components/InfoButton';
+import { HomeAlertCard } from '../../src/components/HomeAlertCard';
 import { useExplain } from '../../src/context/ExplainContext';
 import { describeMarket, ACTION_PLAIN } from '../../src/services/plainEnglish';
-import { formatMoney } from '../../src/services/format';
-import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts } from '../../src/constants/theme';
+import { formatMoney, formatCompactMoney } from '../../src/services/format';
+import { fearGreedColor } from '../../src/services/gauge';
+import { Colors, Typography, Spacing, BorderRadius, getSignalColor, getRegimeColor, Fonts, Numbers } from '../../src/constants/theme';
 
-const formatNum = (n: number | null | undefined, decimals = 0): string => {
-  if (n == null || isNaN(n)) return '--';
-  if (Math.abs(n) >= 1e12) return `$${(n / 1e12).toFixed(1)}T`;
-  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  return `$${n.toLocaleString(undefined, { maximumFractionDigits: decimals })}`;
-};
 
 const timeAgo = (date: Date | null): string => {
   if (!date) return '--';
@@ -66,6 +60,8 @@ export default function DashboardScreen() {
   const fx = settings?.currency === 'GBP' && price?.price && price?.price_gbp ? price.price_gbp / price.price : 1;
   const inCcy = (n: number | null | undefined): string =>
     n == null || isNaN(n) ? '--' : formatMoney(n * fx, settings?.currency === 'GBP' ? 'GBP' : 'USD');
+  const bigInCcy = (n: number | null | undefined): string =>
+    n == null || isNaN(n) || n <= 0 ? '--' : formatCompactMoney(n * fx, settings?.currency === 'GBP' ? 'GBP' : 'USD');
 
   if (data?.isLoading && !price) {
     return (
@@ -123,7 +119,9 @@ export default function DashboardScreen() {
           </View>
         </GlassCard>
 
-        {/* The advice. Regime first, because it governs everything below it. */}
+        <HomeAlertCard />
+
+        {/* The advice: the headline, with the detail on Signals. */}
         <Pressable onPress={() => router.push('/tabs/signals')}>
           <GlassCard>
             {!hasSignal ? (
@@ -136,26 +134,15 @@ export default function DashboardScreen() {
               </View>
             ) : (
               <>
-                <View style={styles.regimeRow}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.regimeLabel}>Market regime</Text>
-                    <InfoButton term="regime" />
-                  </View>
-                  <View style={[styles.regimePill, { backgroundColor: getRegimeColor(signal.regime) + '22', borderColor: getRegimeColor(signal.regime) }]}>
-                    <Text style={[styles.regimePillText, { color: getRegimeColor(signal.regime) }]}>
-                      {signal.regime} {signal.regimeScore >= 0 ? '+' : ''}{signal.regimeScore}/3
-                    </Text>
-                  </View>
-                </View>
-
+                {/* The headline only: what to do, and how much. Regime,
+                    conviction and every reading are on the Signals tab. */}
                 <View style={styles.actionRow}>
                   <View style={styles.labelRow}>
                     <SignalBadge signal={signal.actionLabel} />
                     <InfoButton term="action" />
                   </View>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.convictionText}>Conviction {signal.conviction}%</Text>
-                    <InfoButton term="conviction" />
+                  <View style={[styles.regimePill, { backgroundColor: getRegimeColor(signal.regime) + '22', borderColor: getRegimeColor(signal.regime) }]}>
+                    <Text style={[styles.regimePillText, { color: getRegimeColor(signal.regime) }]}>{signal.regime} trend</Text>
                   </View>
                 </View>
                 <Text style={styles.actionPlain}>{ACTION_PLAIN[signal.action]}</Text>
@@ -215,10 +202,10 @@ export default function DashboardScreen() {
         {/* Stats */}
         <View style={styles.statsGrid}>
           {[
-            { label: 'Market Cap', term: 'marketCap', value: formatNum(price?.market_cap) },
-            { label: '24h Volume', term: 'volume', value: formatNum(price?.volume_24h) },
-            { label: 'BTC Dominance', term: 'dominance', value: data?.btcDominance != null ? `${data.btcDominance.toFixed(1)}%` : '--' },
-            { label: 'Volatility (ATR)', term: 'atr', value: indicators?.atrPct != null ? `${indicators.atrPct.toFixed(1)}%` : '--' },
+            { label: 'Market cap', term: 'marketCap', value: bigInCcy(price?.market_cap) },
+            { label: '24h volume', term: 'volume', value: bigInCcy(price?.volume_24h) },
+            { label: 'BTC dominance', term: 'dominance', value: data?.btcDominance != null ? `${data.btcDominance.toFixed(1)}%` : '--' },
+            { label: 'Daily swing (ATR)', term: 'atr', value: indicators?.atrPct != null ? `${indicators.atrPct.toFixed(1)}%` : '--' },
           ].map((stat, i) => (
             <GlassCard key={i} style={styles.statCard}>
               <View style={styles.statLabelRow}>
@@ -230,15 +217,24 @@ export default function DashboardScreen() {
           ))}
         </View>
 
-        {/* Fear & Greed */}
+        {/* Fear & Greed as a chip: the full dial and its history are on the Market tab. */}
         {fg && (
-          <GlassCard style={styles.gaugeCard}>
-            <View style={[styles.labelRow, styles.titleRow]}>
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Fear &amp; Greed Index</Text>
-              <InfoButton term="fearGreed" />
-            </View>
-            <FearGreedGauge value={fg?.current?.value ?? 50} label={fg?.current?.value_classification ?? 'Neutral'} />
-          </GlassCard>
+          <Pressable onPress={() => router.push('/tabs/onchain')} accessibilityRole="button" accessibilityLabel="Fear and Greed, open the Market tab">
+            <GlassCard style={styles.fgChip}>
+              <View style={styles.labelRow}>
+                <Text style={styles.fgChipLabel}>Fear &amp; Greed</Text>
+                <InfoButton term="fearGreed" size={14} />
+              </View>
+              <View style={styles.labelRow}>
+                <View style={[styles.fgPill, { backgroundColor: fearGreedColor(fg.current.value) + '26', borderColor: fearGreedColor(fg.current.value) }]}>
+                  <Text style={[styles.fgPillText, { color: fearGreedColor(fg.current.value) }]}>
+                    {fg.current.value} {fg.current.value_classification}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+              </View>
+            </GlassCard>
+          </Pressable>
         )}
 
         {/* Volatility bands. Explicitly not a forecast. */}
@@ -255,7 +251,7 @@ export default function DashboardScreen() {
               <View key={row.label} style={styles.projRow}>
                 <Text style={styles.projLabel}>{row.label}</Text>
                 <Text style={styles.projValue}>
-                  {inCcy(Math.max(0, row.r.low))} – {inCcy(row.r.high)}
+                  {inCcy(Math.max(0, row.r.low))} to {inCcy(row.r.high)}
                 </Text>
               </View>
             ))}
@@ -283,25 +279,26 @@ const styles = StyleSheet.create({
   priceText: { ...Typography.priceDisplay, marginTop: 8 },
   changeText: { ...Typography.monoData, fontSize: 16, marginTop: 4 },
   hlRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: Spacing.sm },
-  hlText: { ...Typography.caption, color: Colors.textTertiary },
-  regimeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  hlText: { ...Typography.caption, color: Colors.textSecondary },
   regimeLabel: { ...Typography.caption, color: Colors.textSecondary },
   regimePill: { borderRadius: BorderRadius.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
   regimePillText: { ...Typography.caption, fontWeight: '700' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  convictionText: { ...Typography.caption, color: Colors.textSecondary },
   allocLabel: { ...Typography.caption, color: Colors.textSecondary },
   allocBar: { height: 8, backgroundColor: Colors.elevated, borderRadius: 4, overflow: 'hidden' },
   allocFill: { height: '100%', borderRadius: 4 },
   dcaText: { ...Typography.body, color: Colors.textPrimary, marginTop: Spacing.md, lineHeight: 22 },
   tapHint: { ...Typography.caption, color: Colors.accent, marginTop: Spacing.md },
   waitingText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22 },
-  disclaimer: { ...Typography.caption, color: Colors.textTertiary, lineHeight: 17, paddingHorizontal: 4 },
+  disclaimer: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 17, paddingHorizontal: 4 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, justifyContent: 'space-between' },
   statCard: { width: '47%', padding: Spacing.md },
-  statLabel: { ...Typography.caption, color: Colors.textTertiary },
-  statValue: { ...Typography.subheading, fontFamily: Fonts.mono, marginTop: 4 },
-  gaugeCard: { alignItems: 'center' },
+  statLabel: { ...Typography.caption, color: Colors.textSecondary },
+  statValue: { ...Typography.subheading, ...Numbers, marginTop: 4 },
+  fgChip: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Spacing.md },
+  fgChipLabel: { ...Typography.body, color: Colors.textSecondary },
+  fgPill: { borderRadius: BorderRadius.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
+  fgPillText: { ...Typography.caption, fontWeight: '700' },
   sectionTitle: { ...Typography.subheading, marginBottom: Spacing.md, alignSelf: 'flex-start' },
   projRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.sm },
   projLabel: { ...Typography.body, color: Colors.textSecondary },

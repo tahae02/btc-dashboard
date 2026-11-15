@@ -393,3 +393,32 @@ export const appendToLog = (log: LoggedCall[], entry: LoggedCall, max: number = 
   const next = [...log, entry].sort((a, b) => a.day - b.day);
   return next.length > max ? next.slice(next.length - max) : next;
 };
+
+// ===== Advice history =====
+
+export interface AdviceRun {
+  action: Action;
+  /** Open time of the first and last daily bar in the run. */
+  from: number;
+  to: number;
+  days: number;
+}
+
+/**
+ * Consecutive days with the same advice, merged into runs, for the colour
+ * strip on the Signals tab. Only calls from `since` onwards. A gap of more
+ * than a day (missing history) starts a new run.
+ */
+export const adviceRuns = (calls: DayCall[], since = -Infinity): AdviceRun[] => {
+  const out: AdviceRun[] = [];
+  for (const c of [...calls].filter((c) => c.day >= since).sort((a, b) => a.day - b.day)) {
+    const last = out[out.length - 1];
+    if (last && last.action === c.action && c.day - last.to <= DAY + 1000) {
+      last.to = c.day;
+      last.days++;
+    } else {
+      out.push({ action: c.action, from: c.day, to: c.day, days: 1 });
+    }
+  }
+  return out;
+};

@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitiseSettings, DEFAULT_SETTINGS, MIN_RSI_GAP } from '../src/services/settings';
+import { sanitiseSettings, DEFAULT_SETTINGS, MIN_RSI_GAP, applyPoundDefault } from '../src/services/settings';
 import { estimateCirculatingSupply } from '../src/services/supply';
 
 describe('sanitiseSettings', () => {
@@ -86,5 +86,28 @@ describe('estimateCirculatingSupply', () => {
 
   test('does not run backwards before the checkpoint', () => {
     assert.equal(estimateCirculatingSupply(Date.UTC(2020, 0, 1)), 19_687_500);
+  });
+});
+
+describe('pounds by default', () => {
+  test('a fresh install shows pounds', () => {
+    assert.equal(DEFAULT_SETTINGS.currency, 'GBP');
+  });
+
+  test('settings saved under the old dollar default move to pounds once', () => {
+    const old = { ...DEFAULT_SETTINGS, currency: 'USD' as const };
+    assert.equal(applyPoundDefault(old, false).currency, 'GBP');
+  });
+
+  test('after that, choosing dollars sticks', () => {
+    const chosen = { ...DEFAULT_SETTINGS, currency: 'USD' as const };
+    assert.equal(applyPoundDefault(chosen, true).currency, 'USD');
+  });
+
+  test('nothing else changes', () => {
+    const old = { ...DEFAULT_SETTINGS, currency: 'USD' as const, signalTimeframe: '4H' as const, stretchWeight: 0.3 };
+    const next = applyPoundDefault(old, false);
+    assert.equal(next.signalTimeframe, '4H');
+    assert.equal(next.stretchWeight, 0.3);
   });
 });
